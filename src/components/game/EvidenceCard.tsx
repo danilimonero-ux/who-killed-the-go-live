@@ -22,6 +22,7 @@ export function EvidenceCard({
           {suspect.finding}
         </p>
       )}
+      {showAnswer && (
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <span className="rounded border border-border bg-secondary px-2.5 py-1 font-display text-xs uppercase tracking-widest">
           Correct call: {suspect.correct}
