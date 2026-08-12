@@ -147,16 +147,27 @@ function PlayerScreen() {
           )}
 
           {/* floating discovery HUD */}
-          <div className="absolute right-3 top-3 z-30 w-[280px] max-w-[42vw]">
-            <div className="rounded-lg bg-black/60 backdrop-blur">
-              <DiscoveryFeed discoveries={discoveries} total={TOTAL_STEPS} compact />
-            </div>
+          <div className="absolute right-3 top-3 z-30 w-[260px] max-w-[38vw]">
             <button
-              onClick={() => setBoard(true)}
-              className="mt-2 w-full rounded-md border border-border bg-black/60 px-3 py-2 font-display text-sm uppercase tracking-wider backdrop-blur hover:border-primary hover:text-primary"
+              onClick={() => setHud((h) => !h)}
+              className="mb-2 w-full rounded-md border border-border bg-black/70 px-3 py-1.5 font-display text-xs uppercase tracking-wider backdrop-blur hover:border-primary hover:text-primary"
             >
-              Evidence board
+              {hud ? "Hide HUD" : `Show HUD · ${discoveries.length}/${TOTAL_STEPS}`}
             </button>
+            {hud && (
+              <>
+                <div className="rounded-lg bg-black/70 backdrop-blur">
+                  <DiscoveryFeed discoveries={discoveries} total={TOTAL_STEPS} compact />
+                </div>
+                <button
+                  onClick={() => setBoard(true)}
+                  className="mt-2 w-full rounded-md border border-border bg-black/70 px-3 py-2 font-display text-sm uppercase tracking-wider backdrop-blur hover:border-primary hover:text-primary"
+                >
+                  Evidence board
+                </button>
+              </>
+            )}
+
             {phase === "connect" && (
               <div className="panel mt-2 bg-black/70 p-3 backdrop-blur">
                 <div className="label-caps text-[10px]">Name the primary cause</div>
