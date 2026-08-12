@@ -14,7 +14,7 @@ import {
 } from "@/lib/game";
 import { castVote, readPlayerId, storePlayerId, tally, useRoom } from "@/lib/room";
 import { useDiscoveries, recordDiscovery } from "@/lib/discoveries";
-import { TOTAL_STEPS } from "@/lib/map";
+import { TOTAL_STEPS, objectById } from "@/lib/map";
 import { MapCanvas } from "@/components/game/map/MapCanvas";
 import { InspectPanel } from "@/components/game/map/InspectPanel";
 import { DiscoveryFeed } from "@/components/game/map/DiscoveryFeed";
