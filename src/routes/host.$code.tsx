@@ -83,7 +83,6 @@ function HostPanel() {
     initial: "investigate",
     investigate: "connect",
     connect: "verdict",
-    round: "connect",
     verdict: "reveal",
   };
 
@@ -93,7 +92,6 @@ function HostPanel() {
     initial: "Send them to the scene",
     investigate: "Connect the evidence",
     connect: "Go / No-Go vote",
-    round: "Connect the evidence",
     verdict: "Final reveal",
     reveal: "Case closed",
   };
@@ -165,7 +163,6 @@ function HostPanel() {
                 {phase === "connect" && "Who or what killed it?"}
                 {phase === "verdict" && "Deliver the verdict"}
                 {phase === "reveal" && "The killer"}
-                {phase === "round" && "Legacy round — advance to continue"}
               </div>
             </div>
             <div className="w-56">
