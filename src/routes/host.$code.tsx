@@ -1,23 +1,28 @@
+import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import {
   BRIEFING_LINE,
   CASE_FACTS,
+  CLOSING_LINE,
   INITIAL_OPTIONS,
   PHASE_LABEL,
   PHASE_SECONDS,
   ROLES,
   SUSPECTS,
   roleById,
-  suspectById,
   verdictBand,
   type Phase,
 } from "@/lib/game";
 import { tally, useRoom } from "@/lib/room";
+import { useDiscoveries } from "@/lib/discoveries";
+import { TOTAL_STEPS } from "@/lib/map";
 import { Timer } from "@/components/game/Timer";
 import { ConfidenceMeter } from "@/components/game/ConfidenceMeter";
-import { SuspectCard } from "@/components/game/SuspectCard";
-import { EvidenceCard } from "@/components/game/EvidenceCard";
+import { MapCanvas } from "@/components/game/map/MapCanvas";
+import { InspectPanel } from "@/components/game/map/InspectPanel";
+import { DiscoveryFeed } from "@/components/game/map/DiscoveryFeed";
+import { EvidenceBoard } from "@/components/game/map/EvidenceBoard";
 
 export const Route = createFileRoute("/host/$code")({
   head: () => ({
@@ -26,7 +31,7 @@ export const Route = createFileRoute("/host/$code")({
       {
         name: "description",
         content:
-          "Run the Casa Fuego Madrid launch investigation: control the timer, reveal evidence, adjust confidence and deliver the final reveal.",
+          "Run the Casa Fuego Madrid launch investigation: control the timer, watch the team explore the map, track discoveries and deliver the final reveal.",
       },
       { property: "og:title", content: "Game Master Panel — Who Killed the Go-Live?" },
       {
@@ -40,61 +45,62 @@ export const Route = createFileRoute("/host/$code")({
   component: HostPanel,
 });
 
-const ORDER: Phase[] = ["lobby", "briefing", "initial", "round", "verdict", "reveal"];
-
 function HostPanel() {
   const { code } = Route.useParams();
   const { room, players, votes, loading, missing } = useRoom(code);
+  const { discoveries } = useDiscoveries(room?.id);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [board, setBoard] = useState(false);
 
   if (loading) return <Shell>Opening the case file…</Shell>;
   if (missing || !room) return <Shell>No investigation found for code {code}.</Shell>;
 
   const phase = room.phase as Phase;
   const detectives = players.filter((p) => !p.is_host);
-  const roundVotes = tally(votes, "suspect", room.round);
-  const classVotes = tally(votes, "class", room.round);
   const initialVotes = tally(votes, "initial", 0);
+  const causeVotes = tally(votes, "suspect", 1);
   const verdictVotes = tally(votes, "verdict", 0);
-  const revealedSuspect = suspectById(room.current_suspect);
   const band = verdictBand(room.confidence);
+  const onMap = phase === "investigate" || phase === "connect";
+  const blockers = discoveries.filter((d) => d.severity === "blocker");
 
-  const setPhase = async (next: Phase, round = room.round) => {
+  const setPhase = async (next: Phase) => {
     const secs = PHASE_SECONDS[next] ?? 0;
     await supabase
       .from("rooms")
       .update({
         phase: next,
-        round,
+        round: next === "connect" ? 1 : 0,
         current_suspect: null,
         timer_ends_at: secs > 0 ? new Date(Date.now() + secs * 1000).toISOString() : null,
       })
       .eq("id", room.id);
   };
 
-  const advance = async () => {
-    if (phase === "round" && room.round < 4) return setPhase("round", room.round + 1);
-    if (phase === "round") return setPhase("verdict");
-    if (phase === "lobby") return setPhase("briefing");
-    if (phase === "briefing") return setPhase("initial");
-    if (phase === "initial") return setPhase("round", 1);
-    if (phase === "verdict") return setPhase("reveal");
-    return;
+  const NEXT: Record<string, Phase> = {
+    lobby: "briefing",
+    briefing: "initial",
+    initial: "investigate",
+    investigate: "connect",
+    connect: "verdict",
+    round: "connect",
+    verdict: "reveal",
   };
 
-  const revealEvidence = async (id: string) => {
-    const s = suspectById(id);
-    if (!s || room.revealed.includes(id)) {
-      await supabase.from("rooms").update({ current_suspect: id }).eq("id", room.id);
-      return;
-    }
-    await supabase
-      .from("rooms")
-      .update({
-        current_suspect: id,
-        revealed: [...room.revealed, id],
-        confidence: Math.max(0, Math.min(100, room.confidence + s.delta)),
-      })
-      .eq("id", room.id);
+  const NEXT_LABEL: Record<string, string> = {
+    lobby: "Start briefing",
+    briefing: "Open first vote",
+    initial: "Send them to the scene",
+    investigate: "Connect the evidence",
+    connect: "Go / No-Go vote",
+    round: "Connect the evidence",
+    verdict: "Final reveal",
+    reveal: "Case closed",
+  };
+
+  const advance = async () => {
+    const next = NEXT[phase];
+    if (next) await setPhase(next);
   };
 
   const nudge = async (delta: number) => {
@@ -106,6 +112,7 @@ function HostPanel() {
 
   const restart = async () => {
     await supabase.from("votes").delete().eq("room_id", room.id);
+    await supabase.from("discoveries").delete().eq("room_id", room.id);
     await supabase.from("players").update({ power_used: false }).eq("room_id", room.id);
     await supabase
       .from("rooms")
@@ -121,24 +128,10 @@ function HostPanel() {
       .eq("id", room.id);
   };
 
-  const topSuspect = Object.entries(roundVotes).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-  const nextLabel =
-    phase === "lobby"
-      ? "Start briefing"
-      : phase === "briefing"
-        ? "Open first vote"
-        : phase === "initial"
-          ? "Begin round 1"
-          : phase === "round"
-            ? room.round < 4
-              ? `Start round ${room.round + 1}`
-              : "Go to final verdict"
-            : phase === "verdict"
-              ? "Final reveal"
-              : "Case closed";
+  const topCause = Object.entries(causeVotes).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 
   return (
-    <main className="noir-grain mx-auto max-w-7xl px-4 py-5 md:px-8">
+    <main className="noir-grain mx-auto max-w-[1600px] px-4 py-5 md:px-8">
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <div className="label-caps">Case · Casa Fuego Madrid</div>
@@ -159,21 +152,20 @@ function HostPanel() {
         </div>
       </header>
 
-      <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_320px]">
+      <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_340px]">
         <section className="space-y-5">
           <div className="panel flex flex-wrap items-end justify-between gap-6 p-5">
             <div>
-              <div className="label-caps">
-                {PHASE_LABEL[phase]}
-                {phase === "round" ? ` · Round ${room.round} of 4` : ""}
-              </div>
+              <div className="label-caps">{PHASE_LABEL[phase] ?? phase}</div>
               <div className="mt-1 font-display text-2xl uppercase md:text-3xl">
                 {phase === "lobby" && "Waiting for detectives"}
                 {phase === "briefing" && "Read the crime scene"}
                 {phase === "initial" && "Go / Conditional / No-Go"}
-                {phase === "round" && (revealedSuspect ? "Classify the evidence" : "Choose a suspect")}
+                {phase === "investigate" && "The team is on the floor"}
+                {phase === "connect" && "Who or what killed it?"}
                 {phase === "verdict" && "Deliver the verdict"}
                 {phase === "reveal" && "The killer"}
+                {phase === "round" && "Legacy round — advance to continue"}
               </div>
             </div>
             <div className="w-56">
@@ -228,43 +220,34 @@ function HostPanel() {
             </div>
           )}
 
-          {(phase === "round" || phase === "verdict") && (
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              {SUSPECTS.map((s) => (
-                <SuspectCard
-                  key={s.id}
-                  suspect={s}
-                  votes={roundVotes[s.id] ?? 0}
-                  totalVotes={detectives.length}
-                  revealed={room.revealed.includes(s.id)}
-                  selected={room.current_suspect === s.id}
-                  onClick={() => void revealEvidence(s.id)}
-                  showVotes={phase === "round"}
-                />
-              ))}
-            </div>
+          {onMap && (
+            <MapCanvas
+              roomId={room.id}
+              self={null}
+              found={new Set(discoveries.map((d) => `${d.object_id}:${d.step}`))}
+              selectedId={selected}
+              onSelect={setSelected}
+              frozen
+            />
           )}
 
-          {phase === "round" && revealedSuspect && (
-            <>
-              <EvidenceCard suspect={revealedSuspect} />
-              <div className="panel p-5">
-                <div className="label-caps">Team classification</div>
-                <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
-                  {(["BLOCKER", "WORKAROUND", "OUT OF SCOPE", "NOISE"] as const).map((c) => (
-                    <div
-                      key={c}
-                      className={`rounded-md border p-3 text-center ${
-                        c === revealedSuspect.correct ? "border-primary bg-primary/10" : "border-border"
-                      }`}
-                    >
-                      <div className="font-display text-3xl">{classVotes[c] ?? 0}</div>
-                      <div className="label-caps mt-1">{c}</div>
-                    </div>
-                  ))}
-                </div>
+          {phase === "connect" && (
+            <div className="panel p-5">
+              <div className="label-caps">Primary cause · team vote</div>
+              <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+                {SUSPECTS.map((s) => (
+                  <div
+                    key={s.id}
+                    className={`rounded-md border p-3 text-center ${
+                      topCause === s.id ? "border-primary bg-primary/10" : "border-border"
+                    }`}
+                  >
+                    <div className="font-display text-3xl">{causeVotes[s.id] ?? 0}</div>
+                    <div className="label-caps mt-1 leading-tight">{s.name}</div>
+                  </div>
+                ))}
               </div>
-            </>
+            </div>
           )}
 
           {phase === "verdict" && (
@@ -293,13 +276,14 @@ function HostPanel() {
               <p className="mt-8 font-display text-3xl uppercase tracking-[0.15em] md:text-5xl">
                 No evidence, no go-live.
               </p>
+              <p className="mt-6 max-w-3xl text-lg text-foreground/85 md:text-xl">{CLOSING_LINE}</p>
               <div className="mt-8 grid gap-3 md:grid-cols-2">
                 <Fact label="Accomplices" value="Payments · Network · Configuration · PMS Scope" />
                 <Fact label="Falsely accused" value="Printer — the hardware was always fine" />
                 <Fact label="Team verdict" value={`${band.label} · confidence ${room.confidence}`} />
                 <Fact
-                  label="Suspects examined"
-                  value={`${room.revealed.length} of ${SUSPECTS.length}`}
+                  label="Evidence proven"
+                  value={`${discoveries.length} of ${TOTAL_STEPS} findings · ${blockers.length} blockers`}
                 />
               </div>
             </div>
@@ -328,16 +312,14 @@ function HostPanel() {
               disabled={phase === "reveal"}
               className="w-full rounded-md bg-primary px-4 py-3 font-display text-lg uppercase tracking-wider text-primary-foreground transition hover:brightness-110 disabled:opacity-50"
             >
-              {nextLabel}
+              {NEXT_LABEL[phase] ?? "Advance"}
             </button>
-            {phase === "round" && topSuspect && !room.current_suspect && (
-              <button
-                onClick={() => void revealEvidence(topSuspect)}
-                className="mt-2 w-full rounded-md border border-primary/60 px-4 py-2.5 font-display uppercase tracking-wider text-primary hover:bg-primary/10"
-              >
-                Reveal top suspect: {suspectById(topSuspect)?.name}
-              </button>
-            )}
+            <button
+              onClick={() => setBoard(true)}
+              className="mt-2 w-full rounded-md border border-border px-4 py-2.5 font-display uppercase tracking-wider hover:border-primary hover:text-primary"
+            >
+              Evidence board
+            </button>
             <button
               onClick={() => void setPhase("reveal")}
               className="mt-2 w-full rounded-md border border-border px-4 py-2.5 font-display uppercase tracking-wider hover:border-primary hover:text-primary"
@@ -351,6 +333,8 @@ function HostPanel() {
               Restart case
             </button>
           </div>
+
+          <DiscoveryFeed discoveries={discoveries} total={TOTAL_STEPS} compact />
 
           <div className="panel p-5">
             <div className="label-caps">Detectives · {detectives.length}</div>
@@ -371,6 +355,19 @@ function HostPanel() {
           </div>
         </aside>
       </div>
+
+      {selected && (
+        <InspectPanel
+          objectId={selected}
+          found={new Set(discoveries.map((d) => `${d.object_id}:${d.step}`))}
+          role={null}
+          near={false}
+          readOnly
+          onClose={() => setSelected(null)}
+          onRun={() => {}}
+        />
+      )}
+      {board && <EvidenceBoard discoveries={discoveries} onClose={() => setBoard(false)} />}
     </main>
   );
 }
