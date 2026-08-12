@@ -14,6 +14,7 @@ import {
   collides,
   discoveryKey,
   objectCenter,
+  routeWaypoints,
 } from "@/lib/map";
 import { useMapPresence } from "@/lib/presence";
 
@@ -43,6 +44,7 @@ export function MapCanvas({
   const pos = useRef({ ...SPAWN });
   const keys = useRef(new Set<string>());
   const target = useRef<{ x: number; y: number } | null>(null);
+  const path = useRef<{ x: number; y: number }[]>([]);
   const lastSend = useRef(0);
   const nearRef = useRef<string | null>(null);
   const [scale, setScale] = useState(1);
@@ -74,6 +76,7 @@ export function MapCanvas({
         e.preventDefault();
         keys.current.add(k);
         target.current = null;
+        path.current = [];
       }
     };
     const up = (e: KeyboardEvent) => keys.current.delete(e.key.toLowerCase());
@@ -119,12 +122,14 @@ export function MapCanvas({
           const tdx = target.current.x - p.x;
           const tdy = target.current.y - p.y;
           const d = Math.hypot(tdx, tdy);
-          if (d < 6) {
-            target.current = null;
+          if (d < 10) {
+            target.current = path.current.shift() ?? null;
           } else {
             const before = { x: p.x, y: p.y };
             tryMove(p.x + (tdx / d) * SPEED * 1.9, p.y + (tdy / d) * SPEED * 1.9);
-            if (Math.hypot(p.x - before.x, p.y - before.y) < 0.4) target.current = null;
+            if (Math.hypot(p.x - before.x, p.y - before.y) < 0.4) {
+              target.current = path.current.shift() ?? null;
+            }
           }
         }
       }
@@ -168,6 +173,12 @@ export function MapCanvas({
     return () => cancelAnimationFrame(raf);
   }, [frozen, peers, send, tryMove, onNearChange]);
 
+  const goTo = (dest: { x: number; y: number }) => {
+    const way = routeWaypoints(pos.current, dest);
+    path.current = [...way.slice(1), dest];
+    target.current = way[0] ?? dest;
+  };
+
   const walkToward = (o: (typeof OBJECTS)[number]) => {
     const c = objectCenter(o);
     const p = pos.current;
@@ -175,7 +186,7 @@ export function MapCanvas({
     const dy = p.y - c.y;
     const d = Math.hypot(dx, dy) || 1;
     const stop = Math.max(o.w, o.h) / 2 + PLAYER_R + 24;
-    target.current = { x: c.x + (dx / d) * stop, y: c.y + (dy / d) * stop };
+    goTo({ x: c.x + (dx / d) * stop, y: c.y + (dy / d) * stop });
   };
 
   const onFloorClick = (e: React.MouseEvent) => {
@@ -184,7 +195,7 @@ export function MapCanvas({
     if (!rect) return;
     const x = (e.clientX - rect.left) / scale;
     const y = (e.clientY - rect.top) / scale;
-    target.current = { x, y };
+    goTo({ x, y });
   };
 
   return (

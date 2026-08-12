@@ -607,3 +607,52 @@ export function isStepUnlocked(step: Step, role: string | null, found: Set<strin
   if (step.requires && step.requires.every((k) => found.has(k))) return true;
   return false;
 }
+
+/** Doorway waypoints between zones — used for lightweight click-to-walk routing. */
+type Door = { a: ZoneId; b: ZoneId; x: number; y: number };
+const DOORS: Door[] = [
+  { a: "kitchen", b: "restaurant", x: 250, y: 360 },
+  { a: "bar", b: "restaurant", x: 750, y: 360 },
+  { a: "kitchen", b: "bar", x: 520, y: 200 },
+  { a: "restaurant", b: "reception", x: 1068, y: 560 },
+  { a: "office", b: "reception", x: 1430, y: 340 },
+];
+
+export function zoneAt(x: number, y: number): ZoneId {
+  for (const z of ZONES) {
+    if (x >= z.x && x <= z.x + z.w && y >= z.y && y <= z.y + z.h) return z.id;
+  }
+  return "restaurant";
+}
+
+/** Returns the doorway waypoints to walk through to get from one point to another. */
+export function routeWaypoints(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+): { x: number; y: number }[] {
+  const start = zoneAt(from.x, from.y);
+  const goal = zoneAt(to.x, to.y);
+  if (start === goal) return [];
+  const prev = new Map<ZoneId, { zone: ZoneId; door: Door } | null>([[start, null]]);
+  const queue: ZoneId[] = [start];
+  while (queue.length) {
+    const z = queue.shift()!;
+    if (z === goal) break;
+    for (const d of DOORS) {
+      const other = d.a === z ? d.b : d.b === z ? d.a : null;
+      if (!other || prev.has(other)) continue;
+      prev.set(other, { zone: z, door: d });
+      queue.push(other);
+    }
+  }
+  if (!prev.has(goal)) return [];
+  const path: { x: number; y: number }[] = [];
+  let cur: ZoneId = goal;
+  while (cur !== start) {
+    const step = prev.get(cur);
+    if (!step) break;
+    path.unshift({ x: step.door.x, y: step.door.y });
+    cur = step.zone;
+  }
+  return path;
+}
