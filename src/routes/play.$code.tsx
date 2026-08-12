@@ -252,6 +252,7 @@ function PlayerScreen() {
           <p className="mt-6 font-display text-2xl uppercase tracking-[0.12em]">
             No evidence, no go-live.
           </p>
+          <p className="mt-4 text-base text-foreground/85">{CLOSING_LINE}</p>
         </Card>
       )}
     </main>
