@@ -15,6 +15,7 @@ import {
   discoveryKey,
   objectCenter,
   routeWaypoints,
+  zoneAt,
 } from "@/lib/map";
 import { useMapPresence } from "@/lib/presence";
 
@@ -27,6 +28,7 @@ export function MapCanvas({
   selectedId,
   onSelect,
   onNearChange,
+  onZoneChange,
   frozen = false,
 }: {
   roomId: string;
@@ -35,6 +37,7 @@ export function MapCanvas({
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   onNearChange?: (id: string | null) => void;
+  onZoneChange?: (zone: string) => void;
   frozen?: boolean;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -47,6 +50,7 @@ export function MapCanvas({
   const path = useRef<{ x: number; y: number }[]>([]);
   const lastSend = useRef(0);
   const nearRef = useRef<string | null>(null);
+  const zoneRef = useRef<string | null>(null);
   const [scale, setScale] = useState(1);
   const [near, setNear] = useState<string | null>(null);
 
@@ -176,6 +180,12 @@ export function MapCanvas({
         onNearChange?.(best);
       }
 
+      const z = zoneAt(p.x, p.y);
+      if (z !== zoneRef.current) {
+        zoneRef.current = z;
+        onZoneChange?.(z);
+      }
+
       const now = performance.now();
       if (now - lastSend.current > 100) {
         lastSend.current = now;
@@ -185,7 +195,7 @@ export function MapCanvas({
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [frozen, peers, send, tryMove, onNearChange]);
+  }, [frozen, peers, send, tryMove, onNearChange, onZoneChange]);
 
   const goTo = (dest: { x: number; y: number }) => {
     const way = routeWaypoints(pos.current, dest);

@@ -50,6 +50,7 @@ function PlayerScreen() {
   const [showClue, setShowClue] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [near, setNear] = useState<string | null>(null);
+  const [zone, setZone] = useState<string | null>(null);
   const [board, setBoard] = useState(false);
   const { discoveries, found } = useDiscoveries(room?.id);
 
@@ -180,6 +181,7 @@ function PlayerScreen() {
               selectedId={selected}
               onSelect={setSelected}
               onNearChange={setNear}
+              onZoneChange={setZone}
               frozen={board}
             />
           </div>
@@ -220,7 +222,7 @@ function PlayerScreen() {
               objectId={selected}
               found={found}
               role={me.role}
-              near={near === selected}
+              near={near === selected || objectById(selected)?.zone === zone}
               onClose={() => setSelected(null)}
               onRun={runStep}
             />
