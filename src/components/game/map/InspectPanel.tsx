@@ -1,6 +1,5 @@
 import { useState } from "react";
 import {
-  INTERACT_RANGE,
   discoveryKey,
   isStepUnlocked,
   objectById,
@@ -56,7 +55,7 @@ export function InspectPanel({
 
       {!near && !readOnly && (
         <p className="mt-3 rounded-md border border-border bg-secondary/40 px-3 py-2 text-sm text-muted-foreground">
-          Walk closer to interact — you need to be within {INTERACT_RANGE}px of it.
+          Walk into the {obj.zone} to interact with this.
         </p>
       )}
 
