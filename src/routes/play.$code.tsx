@@ -4,21 +4,23 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   BRIEFING_LINE,
   CASE_FACTS,
-  CLASSIFICATIONS,
   INITIAL_OPTIONS,
   PHASE_LABEL,
   PHASE_SECONDS,
   ROLES,
   SUSPECTS,
   roleById,
-  suspectById,
   type Phase,
 } from "@/lib/game";
 import { castVote, readPlayerId, storePlayerId, tally, useRoom } from "@/lib/room";
+import { useDiscoveries, recordDiscovery } from "@/lib/discoveries";
+import { TOTAL_STEPS } from "@/lib/map";
+import { MapCanvas } from "@/components/game/map/MapCanvas";
+import { InspectPanel } from "@/components/game/map/InspectPanel";
+import { DiscoveryFeed } from "@/components/game/map/DiscoveryFeed";
+import { EvidenceBoard } from "@/components/game/map/EvidenceBoard";
 import { Timer } from "@/components/game/Timer";
 import { ConfidenceMeter } from "@/components/game/ConfidenceMeter";
-import { SuspectCard } from "@/components/game/SuspectCard";
-import { EvidenceCard } from "@/components/game/EvidenceCard";
 
 export const Route = createFileRoute("/play/$code")({
   head: () => ({
@@ -46,6 +48,10 @@ function PlayerScreen() {
   const { room, players, votes, loading, missing } = useRoom(code);
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [showClue, setShowClue] = useState(false);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [near, setNear] = useState<string | null>(null);
+  const [board, setBoard] = useState(false);
+  const { discoveries, found } = useDiscoveries(room?.id);
 
   useEffect(() => {
     setPlayerId(readPlayerId(code));
@@ -72,8 +78,12 @@ function PlayerScreen() {
   const detectives = players.filter((p) => !p.is_host);
   const myVote = (kind: string, round: number) =>
     votes.find((v) => v.player_id === me.id && v.kind === kind && v.round === round)?.value ?? null;
-  const roundVotes = tally(votes, "suspect", room.round);
-  const revealedSuspect = suspectById(room.current_suspect);
+
+  const onMap = phase === "investigate" || phase === "connect";
+
+  const runStep = async (objectId: string, step: number) => {
+    await recordDiscovery(room.id, objectId, step, { id: me.id, name: me.name });
+  };
 
   const usePower = async () => {
     setShowClue(true);
@@ -81,13 +91,13 @@ function PlayerScreen() {
   };
 
   return (
-    <main className="noir-grain mx-auto max-w-3xl px-4 py-5">
+    <main className={`noir-grain mx-auto px-4 py-5 ${onMap ? "max-w-[1600px]" : "max-w-3xl"}`}>
       <header className="flex items-start justify-between gap-4">
         <div>
           <div className="label-caps">{room.code} · Casa Fuego Madrid</div>
           <h1 className="font-display text-2xl uppercase leading-none md:text-3xl">
             {PHASE_LABEL[phase]}
-            {phase === "round" ? ` · Round ${room.round}/4` : ""}
+
           </h1>
         </div>
         <div className="w-32 shrink-0">
@@ -160,42 +170,63 @@ function PlayerScreen() {
         </Card>
       )}
 
-      {phase === "round" && (
-        <Card title={revealedSuspect ? "Suspect under the lamp" : "Who do we interrogate?"}>
-          <div className="grid grid-cols-2 gap-2">
-            {SUSPECTS.map((s) => (
-              <SuspectCard
-                key={s.id}
-                suspect={s}
-                votes={roundVotes[s.id] ?? 0}
-                totalVotes={detectives.length}
-                selected={myVote("suspect", room.round) === s.id}
-                revealed={room.revealed.includes(s.id)}
-                disabled={!!revealedSuspect}
-                onClick={() => void castVote(room.id, me.id, "suspect", room.round, s.id)}
-              />
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {phase === "round" && revealedSuspect && (
-        <>
-          <div className="mt-4">
-            <EvidenceCard
-              suspect={revealedSuspect}
-              showFinding={!!myVote("class", room.round)}
-              showAnswer={!!myVote("class", room.round)}
+      {onMap && (
+        <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_320px]">
+          <div>
+            <MapCanvas
+              roomId={room.id}
+              self={{ id: me.id, name: me.name, role: me.role }}
+              found={found}
+              selectedId={selected}
+              onSelect={setSelected}
+              onNearChange={setNear}
+              frozen={board}
             />
           </div>
-          <Card title="Classify this evidence">
-            <Options
-              options={[...CLASSIFICATIONS]}
-              selected={myVote("class", room.round)}
-              onSelect={(v) => void castVote(room.id, me.id, "class", room.round, v)}
+          <div className="space-y-4">
+            <DiscoveryFeed discoveries={discoveries} total={TOTAL_STEPS} />
+            <button
+              onClick={() => setBoard(true)}
+              className="w-full rounded-md border border-border px-4 py-3 font-display uppercase tracking-wider hover:border-primary hover:text-primary"
+            >
+              Evidence board
+            </button>
+            {phase === "connect" && (
+              <div className="panel p-4">
+                <div className="label-caps">Name the primary cause</div>
+                <div className="mt-3 grid gap-2">
+                  {SUSPECTS.map((sp) => (
+                    <button
+                      key={sp.id}
+                      onClick={() => void castVote(room.id, me.id, "suspect", 1, sp.id)}
+                      className={`rounded-md border px-3 py-2 text-left font-display text-sm uppercase tracking-wide transition ${
+                        myVote("suspect", 1) === sp.id
+                          ? "border-primary bg-primary/15 text-primary"
+                          : "border-border hover:border-primary/60"
+                      }`}
+                    >
+                      {sp.name}
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        {tally(votes, "suspect", 1)[sp.id] ?? 0}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          {selected && (
+            <InspectPanel
+              objectId={selected}
+              found={found}
+              role={me.role}
+              near={true}
+              onClose={() => setSelected(null)}
+              onRun={runStep}
             />
-          </Card>
-        </>
+          )}
+          {board && <EvidenceBoard discoveries={discoveries} onClose={() => setBoard(false)} />}
+        </div>
       )}
 
       {phase === "verdict" && (

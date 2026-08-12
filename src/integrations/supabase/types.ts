@@ -14,6 +14,66 @@ export type Database = {
   }
   public: {
     Tables: {
+      discoveries: {
+        Row: {
+          created_at: string
+          delta: number
+          detail: string
+          id: string
+          object_id: string
+          player_id: string | null
+          player_name: string | null
+          points_to: string | null
+          room_id: string
+          severity: string
+          step: number
+          title: string
+        }
+        Insert: {
+          created_at?: string
+          delta?: number
+          detail: string
+          id?: string
+          object_id: string
+          player_id?: string | null
+          player_name?: string | null
+          points_to?: string | null
+          room_id: string
+          severity?: string
+          step?: number
+          title: string
+        }
+        Update: {
+          created_at?: string
+          delta?: number
+          detail?: string
+          id?: string
+          object_id?: string
+          player_id?: string | null
+          player_name?: string | null
+          points_to?: string | null
+          room_id?: string
+          severity?: string
+          step?: number
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "discoveries_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "discoveries_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       players: {
         Row: {
           created_at: string

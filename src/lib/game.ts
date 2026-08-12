@@ -1,4 +1,11 @@
-export type Phase = "lobby" | "briefing" | "initial" | "round" | "verdict" | "reveal";
+export type Phase =
+  | "lobby"
+  | "briefing"
+  | "initial"
+  | "investigate"
+  | "connect"
+  | "verdict"
+  | "reveal";
 
 export type Classification = "BLOCKER" | "WORKAROUND" | "OUT OF SCOPE" | "NOISE";
 
@@ -172,17 +179,22 @@ export const INITIAL_OPTIONS = ["GO", "CONDITIONAL GO", "NO-GO"] as const;
 
 export const PHASE_SECONDS: Record<string, number> = {
   lobby: 60,
-  briefing: 30,
+  briefing: 45,
   initial: 20,
-  round: 60,
-  verdict: 45,
+  investigate: 270,
+  connect: 120,
+  verdict: 60,
   reveal: 0,
+  // legacy phase kept so old rooms in progress still render a timer
+  round: 60,
 };
 
-export const PHASE_LABEL: Record<Phase, string> = {
+export const PHASE_LABEL: Record<string, string> = {
   lobby: "Assembling the team",
   briefing: "Crime scene briefing",
   initial: "First instinct vote",
+  investigate: "On the scene — free investigation",
+  connect: "Connecting the evidence",
   round: "Investigation",
   verdict: "Final verdict",
   reveal: "The reveal",
@@ -201,6 +213,9 @@ export function verdictBand(confidence: number) {
     return { label: "HIGH RISK", tone: "risk" as const, note: "Launching would be a gamble." };
   return { label: "NO-GO", tone: "nogo" as const, note: "This go-live cannot happen." };
 }
+
+export const CLOSING_LINE =
+  "A go-live is not ready when everything is configured. It is ready when everything is proven.";
 
 export const BRIEFING_LINE =
   "Welcome detectives. Casa Fuego Madrid was supposed to go live tomorrow. At 18:42, the launch was found dead.";
