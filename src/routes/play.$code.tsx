@@ -182,7 +182,11 @@ function PlayerScreen() {
       {phase === "round" && revealedSuspect && (
         <>
           <div className="mt-4">
-            <EvidenceCard suspect={revealedSuspect} showFinding={false} />
+            <EvidenceCard
+              suspect={revealedSuspect}
+              showFinding={!!myVote("class", room.round)}
+              showAnswer={!!myVote("class", room.round)}
+            />
           </div>
           <Card title="Classify this evidence">
             <Options
