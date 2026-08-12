@@ -128,7 +128,21 @@ export function MapCanvas({
             const before = { x: p.x, y: p.y };
             tryMove(p.x + (tdx / d) * SPEED * 1.9, p.y + (tdy / d) * SPEED * 1.9);
             if (Math.hypot(p.x - before.x, p.y - before.y) < 0.4) {
-              target.current = path.current.shift() ?? null;
+              // slide around the obstacle instead of giving up
+              const perp = [
+                { x: -tdy / d, y: tdx / d },
+                { x: tdy / d, y: -tdx / d },
+              ];
+              let moved = false;
+              for (const v of perp) {
+                const b2 = { x: p.x, y: p.y };
+                tryMove(p.x + v.x * SPEED * 2.2, p.y + v.y * SPEED * 2.2);
+                if (Math.hypot(p.x - b2.x, p.y - b2.y) > 0.4) {
+                  moved = true;
+                  break;
+                }
+              }
+              if (!moved) target.current = path.current.shift() ?? null;
             }
           }
         }

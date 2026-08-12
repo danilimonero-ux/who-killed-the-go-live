@@ -555,8 +555,9 @@ export const PROPS: Prop[] = [
 /** Everything a player can bump into. */
 export const COLLIDERS: Rect[] = [
   ...WALLS,
-  ...PROPS.filter((p) => p.kind !== "plant").map(({ x, y, w, h }) => ({ x, y, w, h })),
-  ...OBJECTS.filter((o) => o.kind !== "npc").map(({ x, y, w, h }) => ({ x, y, w, h })),
+  ...PROPS.filter((p) => p.kind === "bar" || p.kind === "counter" || p.kind === "line").map(
+    ({ x, y, w, h }) => ({ x, y, w, h }),
+  ),
 ];
 
 export const SPAWN = { x: 300, y: 830 };
