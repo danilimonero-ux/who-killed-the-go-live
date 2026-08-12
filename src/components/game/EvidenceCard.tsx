@@ -1,6 +1,14 @@
 import type { Suspect } from "@/lib/game";
 
-export function EvidenceCard({ suspect, showFinding = true }: { suspect: Suspect; showFinding?: boolean }) {
+export function EvidenceCard({
+  suspect,
+  showFinding = true,
+  showAnswer = true,
+}: {
+  suspect: Suspect;
+  showFinding?: boolean;
+  showAnswer?: boolean;
+}) {
   const positive = suspect.delta > 0;
   return (
     <div className="panel noir-grain relative overflow-hidden p-5 md:p-6">
@@ -14,6 +22,7 @@ export function EvidenceCard({ suspect, showFinding = true }: { suspect: Suspect
           {suspect.finding}
         </p>
       )}
+      {showAnswer && (
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <span className="rounded border border-border bg-secondary px-2.5 py-1 font-display text-xs uppercase tracking-widest">
           Correct call: {suspect.correct}
@@ -27,6 +36,7 @@ export function EvidenceCard({ suspect, showFinding = true }: { suspect: Suspect
         </span>
         <span className="text-xs text-muted-foreground">{suspect.deltaLabel}</span>
       </div>
+      )}
     </div>
   );
 }
