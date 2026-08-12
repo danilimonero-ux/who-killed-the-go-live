@@ -92,8 +92,114 @@ function PlayerScreen() {
     if (!me.power_used) await supabase.from("players").update({ power_used: true }).eq("id", me.id);
   };
 
+  if (onMap)
+    return (
+      <main className="fixed inset-0 flex flex-col overflow-hidden bg-background">
+        {/* slim HUD */}
+        <header className="z-30 flex shrink-0 items-center gap-4 border-b border-border/70 bg-black/50 px-4 py-2 backdrop-blur">
+          <div className="min-w-0">
+            <div className="label-caps text-[10px]">{room.code} · Casa Fuego Madrid</div>
+            <div className="font-display text-lg uppercase leading-none">{PHASE_LABEL[phase]}</div>
+          </div>
+          <div className="hidden min-w-0 md:block">
+            <div className="label-caps text-[10px]">{me.name}</div>
+            <div className="font-display text-base uppercase leading-none text-primary">
+              {role?.name ?? "Observer"}
+            </div>
+          </div>
+          <div className="mx-auto hidden w-64 md:block">
+            <ConfidenceMeter value={room.confidence} compact />
+          </div>
+          <button
+            onClick={() => void usePower()}
+            disabled={!role || (me.power_used && showClue)}
+            className={`rounded-md px-3 py-1.5 font-display text-xs uppercase tracking-wider transition ${
+              me.power_used
+                ? "border border-border text-muted-foreground"
+                : "bg-primary text-primary-foreground hover:brightness-110"
+            }`}
+          >
+            {me.power_used ? "Power used" : role?.power ?? "No power"}
+          </button>
+          <div className="w-24 shrink-0">
+            <Timer endsAt={room.timer_ends_at} total={PHASE_SECONDS[phase] ?? 60} />
+          </div>
+        </header>
+
+        {/* map stage */}
+        <div className="relative min-h-0 flex-1">
+          <MapCanvas
+            roomId={room.id}
+            self={{ id: me.id, name: me.name, role: me.role }}
+            found={found}
+            selectedId={selected}
+            onSelect={setSelected}
+            onNearChange={setNear}
+            onZoneChange={setZone}
+            frozen={board}
+            fit
+          />
+
+          {showClue && role && (
+            <div className="pointer-events-none absolute left-3 top-3 z-30 max-w-sm rounded-md border border-evidence/40 bg-black/80 p-3 font-mono text-xs leading-relaxed text-evidence backdrop-blur">
+              {role.clue}
+            </div>
+          )}
+
+          {/* floating discovery HUD */}
+          <div className="absolute right-3 top-3 z-30 w-[280px] max-w-[42vw]">
+            <div className="rounded-lg bg-black/60 backdrop-blur">
+              <DiscoveryFeed discoveries={discoveries} total={TOTAL_STEPS} compact />
+            </div>
+            <button
+              onClick={() => setBoard(true)}
+              className="mt-2 w-full rounded-md border border-border bg-black/60 px-3 py-2 font-display text-sm uppercase tracking-wider backdrop-blur hover:border-primary hover:text-primary"
+            >
+              Evidence board
+            </button>
+            {phase === "connect" && (
+              <div className="panel mt-2 bg-black/70 p-3 backdrop-blur">
+                <div className="label-caps text-[10px]">Name the primary cause</div>
+                <div className="mt-2 grid gap-1.5">
+                  {SUSPECTS.map((sp) => (
+                    <button
+                      key={sp.id}
+                      onClick={() => void castVote(room.id, me.id, "suspect", 1, sp.id)}
+                      className={`rounded-md border px-2.5 py-1.5 text-left font-display text-xs uppercase tracking-wide transition ${
+                        myVote("suspect", 1) === sp.id
+                          ? "border-primary bg-primary/15 text-primary"
+                          : "border-border hover:border-primary/60"
+                      }`}
+                    >
+                      {sp.name}
+                      <span className="ml-2 text-[10px] text-muted-foreground">
+                        {tally(votes, "suspect", 1)[sp.id] ?? 0}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {selected && (
+            <InspectPanel
+              objectId={selected}
+              found={found}
+              role={me.role}
+              near={near === selected || objectById(selected)?.zone === zone}
+              onClose={() => setSelected(null)}
+              onRun={runStep}
+            />
+          )}
+          {board && <EvidenceBoard discoveries={discoveries} onClose={() => setBoard(false)} />}
+        </div>
+      </main>
+    );
+
   return (
-    <main className={`noir-grain mx-auto px-4 py-5 ${onMap ? "max-w-[1600px]" : "max-w-3xl"}`}>
+    <main className="noir-grain mx-auto max-w-3xl px-4 py-5">
+
       <header className="flex items-start justify-between gap-4">
         <div>
           <div className="label-caps">{room.code} · Casa Fuego Madrid</div>
@@ -170,66 +276,6 @@ function PlayerScreen() {
             onSelect={(v) => void castVote(room.id, me.id, "initial", 0, v)}
           />
         </Card>
-      )}
-
-      {onMap && (
-        <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_320px]">
-          <div>
-            <MapCanvas
-              roomId={room.id}
-              self={{ id: me.id, name: me.name, role: me.role }}
-              found={found}
-              selectedId={selected}
-              onSelect={setSelected}
-              onNearChange={setNear}
-              onZoneChange={setZone}
-              frozen={board}
-            />
-          </div>
-          <div className="space-y-4">
-            <DiscoveryFeed discoveries={discoveries} total={TOTAL_STEPS} />
-            <button
-              onClick={() => setBoard(true)}
-              className="w-full rounded-md border border-border px-4 py-3 font-display uppercase tracking-wider hover:border-primary hover:text-primary"
-            >
-              Evidence board
-            </button>
-            {phase === "connect" && (
-              <div className="panel p-4">
-                <div className="label-caps">Name the primary cause</div>
-                <div className="mt-3 grid gap-2">
-                  {SUSPECTS.map((sp) => (
-                    <button
-                      key={sp.id}
-                      onClick={() => void castVote(room.id, me.id, "suspect", 1, sp.id)}
-                      className={`rounded-md border px-3 py-2 text-left font-display text-sm uppercase tracking-wide transition ${
-                        myVote("suspect", 1) === sp.id
-                          ? "border-primary bg-primary/15 text-primary"
-                          : "border-border hover:border-primary/60"
-                      }`}
-                    >
-                      {sp.name}
-                      <span className="ml-2 text-xs text-muted-foreground">
-                        {tally(votes, "suspect", 1)[sp.id] ?? 0}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-          {selected && (
-            <InspectPanel
-              objectId={selected}
-              found={found}
-              role={me.role}
-              near={near === selected || objectById(selected)?.zone === zone}
-              onClose={() => setSelected(null)}
-              onRun={runStep}
-            />
-          )}
-          {board && <EvidenceBoard discoveries={discoveries} onClose={() => setBoard(false)} />}
-        </div>
       )}
 
       {phase === "verdict" && (
