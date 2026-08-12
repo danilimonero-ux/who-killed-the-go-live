@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   BRIEFING_LINE,
   CASE_FACTS,
+  CLOSING_LINE,
   INITIAL_OPTIONS,
   PHASE_LABEL,
   PHASE_SECONDS,
