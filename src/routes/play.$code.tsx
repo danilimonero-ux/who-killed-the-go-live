@@ -220,7 +220,7 @@ function PlayerScreen() {
               objectId={selected}
               found={found}
               role={me.role}
-              near={near === selected}
+              near={true}
               onClose={() => setSelected(null)}
               onRun={runStep}
             />
