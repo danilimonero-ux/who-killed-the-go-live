@@ -53,6 +53,7 @@ function PlayerScreen() {
   const [near, setNear] = useState<string | null>(null);
   const [zone, setZone] = useState<string | null>(null);
   const [board, setBoard] = useState(false);
+  const [hud, setHud] = useState(true);
   const { discoveries, found } = useDiscoveries(room?.id);
 
   useEffect(() => {
