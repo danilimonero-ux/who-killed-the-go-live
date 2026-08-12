@@ -36,6 +36,7 @@ export function EvidenceCard({
         </span>
         <span className="text-xs text-muted-foreground">{suspect.deltaLabel}</span>
       </div>
+      )}
     </div>
   );
 }
