@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   BRIEFING_LINE,
   CASE_FACTS,
+  CLOSING_LINE,
   INITIAL_OPTIONS,
   PHASE_LABEL,
   PHASE_SECONDS,
@@ -252,6 +253,7 @@ function PlayerScreen() {
           <p className="mt-6 font-display text-2xl uppercase tracking-[0.12em]">
             No evidence, no go-live.
           </p>
+          <p className="mt-4 text-base text-foreground/85">{CLOSING_LINE}</p>
         </Card>
       )}
     </main>
