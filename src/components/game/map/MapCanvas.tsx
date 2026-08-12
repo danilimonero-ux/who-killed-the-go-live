@@ -30,6 +30,7 @@ export function MapCanvas({
   onNearChange,
   onZoneChange,
   frozen = false,
+  fit = false,
 }: {
   roomId: string;
   self: Self;
@@ -39,6 +40,8 @@ export function MapCanvas({
   onNearChange?: (id: string | null) => void;
   onZoneChange?: (zone: string) => void;
   frozen?: boolean;
+  /** fill the parent box (letterboxed) instead of scaling to width */
+  fit?: boolean;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
@@ -56,18 +59,22 @@ export function MapCanvas({
 
   const { peers, ids, send } = useMapPresence(roomId, self);
 
-  // scale the fixed world to the container width
+  // scale the fixed world to the container
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => {
+    const measure = () => {
       const w = el.clientWidth;
-      setScale(Math.max(0.25, w / WORLD_W));
-    });
+      const h = el.clientHeight;
+      const s = fit && h > 0 ? Math.min(w / WORLD_W, h / WORLD_H) : w / WORLD_W;
+      setScale(Math.max(0.2, s));
+    };
+    const ro = new ResizeObserver(measure);
     ro.observe(el);
-    setScale(Math.max(0.25, el.clientWidth / WORLD_W));
+    measure();
     return () => ro.disconnect();
-  }, []);
+  }, [fit]);
+
 
   // keyboard
   useEffect(() => {
@@ -223,10 +230,13 @@ export function MapCanvas({
   };
 
   return (
-    <div ref={wrapRef} className="w-full select-none">
+    <div
+      ref={wrapRef}
+      className={`select-none ${fit ? "flex h-full w-full items-center justify-center" : "w-full"}`}
+    >
       <div
-        className="relative overflow-hidden rounded-lg border border-border"
-        style={{ height: WORLD_H * scale }}
+        className="relative overflow-hidden rounded-xl border border-border/80 shadow-[0_30px_90px_-40px_black]"
+        style={{ height: WORLD_H * scale, width: WORLD_W * scale }}
       >
         <div
           ref={worldRef}
@@ -234,6 +244,7 @@ export function MapCanvas({
           className="absolute left-0 top-0 origin-top-left"
           style={{ width: WORLD_W, height: WORLD_H, transform: `scale(${scale})` }}
         >
+
           <FloorPlan />
 
           {OBJECTS.map((o) => {
@@ -294,13 +305,14 @@ export function MapCanvas({
 
           {self && <Avatar nodeRef={(n) => (selfNode.current = n)} id={self.id} name={self.name} me />}
         </div>
+        <p className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-black/60 px-3 py-1 text-[11px] uppercase tracking-wider text-white/70 backdrop-blur">
+          WASD / arrows to walk · click floor to move · click an object to inspect
+        </p>
       </div>
-      <p className="mt-2 text-center text-xs text-muted-foreground">
-        WASD / arrows to walk · click the floor to move · click an object to inspect
-      </p>
     </div>
   );
 }
+
 
 function Avatar({
   nodeRef,
@@ -378,30 +390,140 @@ function FloorPlan() {
           </text>
         </g>
       ))}
-      {PROPS.map((p) => (
+      {/* rugs */}
+      <rect x={140} y={430} width={860} height={420} rx={26} fill="rgba(120,60,35,.16)" />
+
+      {PROPS.map((p) => {
+        if (p.kind === "table") {
+          const cx = p.x + p.w / 2;
+          const cy = p.y + p.h / 2;
+          const r = Math.min(p.w, p.h) / 2;
+          return (
+            <g key={p.id}>
+              {[
+                [cx, cy - r - 14],
+                [cx, cy + r + 14],
+                [cx - r - 14, cy],
+                [cx + r + 14, cy],
+              ].map(([x, y], i) => (
+                <rect
+                  key={i}
+                  x={(x as number) - 11}
+                  y={(y as number) - 11}
+                  width={22}
+                  height={22}
+                  rx={5}
+                  fill="#4a3527"
+                  stroke="rgba(0,0,0,.5)"
+                />
+              ))}
+              <circle cx={cx} cy={cy + 4} r={r} fill="rgba(0,0,0,.35)" />
+              <circle cx={cx} cy={cy} r={r} fill="#6b4630" stroke="rgba(0,0,0,.5)" />
+              <circle cx={cx} cy={cy} r={r * 0.55} fill="rgba(255,220,180,.07)" />
+              <circle cx={cx} cy={cy} r={5} fill="#e8a24a" opacity={0.8} />
+            </g>
+          );
+        }
+        if (p.kind === "plant") {
+          const cx = p.x + p.w / 2;
+          const cy = p.y + p.h / 2;
+          return (
+            <g key={p.id}>
+              <circle cx={cx} cy={cy} r={p.w / 2} fill="#3d2b20" />
+              <circle cx={cx} cy={cy - 4} r={p.w / 2 - 5} fill="#2f5a35" />
+              <circle cx={cx - 8} cy={cy + 2} r={9} fill="#3a6b3c" />
+              <circle cx={cx + 8} cy={cy + 4} r={8} fill="#2b5230" />
+            </g>
+          );
+        }
+        const isBar = p.kind === "bar";
+        return (
+          <g key={p.id}>
+            <rect
+              x={p.x}
+              y={p.y + 5}
+              width={p.w}
+              height={p.h}
+              rx={7}
+              fill="rgba(0,0,0,.4)"
+            />
+            <rect
+              x={p.x}
+              y={p.y}
+              width={p.w}
+              height={p.h}
+              rx={7}
+              fill={isBar ? "#5b3826" : p.kind === "line" ? "#4a4740" : "#443a31"}
+              stroke="rgba(0,0,0,.5)"
+            />
+            <rect
+              x={p.x + 4}
+              y={p.y + 4}
+              width={p.w - 8}
+              height={Math.max(6, p.h * 0.22)}
+              rx={4}
+              fill="rgba(255,255,255,.08)"
+            />
+            {p.kind === "line" &&
+              Array.from({ length: Math.floor(p.w / 90) }).map((_, i) => (
+                <circle
+                  key={i}
+                  cx={p.x + 45 + i * 90}
+                  cy={p.y + p.h / 2}
+                  r={13}
+                  fill="#2a2724"
+                  stroke="rgba(255,140,60,.5)"
+                />
+              ))}
+            {isBar &&
+              Array.from({ length: Math.floor(p.w / 80) }).map((_, i) => (
+                <circle
+                  key={i}
+                  cx={p.x + 40 + i * 80}
+                  cy={p.y + p.h + 30}
+                  r={13}
+                  fill="#4a3527"
+                  stroke="rgba(0,0,0,.5)"
+                />
+              ))}
+          </g>
+        );
+      })}
+
+      {WALLS.map((w, i) => (
+        <g key={i}>
+          <rect x={w.x} y={w.y} width={w.w} height={w.h} fill="#0d0a09" />
+          <rect
+            x={w.x}
+            y={w.y}
+            width={w.w}
+            height={Math.min(4, w.h)}
+            fill="rgba(255,255,255,.07)"
+          />
+        </g>
+      ))}
+
+      {/* doorways */}
+      {[
+        { x: 200, y: 354, w: 100, h: 12 },
+        { x: 700, y: 354, w: 100, h: 12 },
+        { x: 514, y: 150, w: 12, h: 100 },
+        { x: 1062, y: 500, w: 12, h: 120 },
+        { x: 1380, y: 334, w: 100, h: 12 },
+      ].map((d, i) => (
         <rect
-          key={p.id}
-          x={p.x}
-          y={p.y}
-          width={p.w}
-          height={p.h}
-          rx={p.kind === "table" || p.kind === "plant" ? Math.min(p.w, p.h) / 2 : 6}
-          fill={
-            p.kind === "table"
-              ? "#5a3d2b"
-              : p.kind === "plant"
-                ? "#2f4a32"
-                : p.kind === "bar"
-                  ? "#4a2f22"
-                  : "#3c332c"
-          }
-          stroke="rgba(0,0,0,.45)"
+          key={i}
+          x={d.x}
+          y={d.y}
+          width={d.w}
+          height={d.h}
+          fill="rgba(232,162,74,.45)"
+          rx={4}
         />
       ))}
-      {WALLS.map((w, i) => (
-        <rect key={i} x={w.x} y={w.y} width={w.w} height={w.h} fill="#0f0c0a" />
-      ))}
+
       <rect width={WORLD_W} height={WORLD_H} fill="url(#vig)" />
+
     </svg>
   );
 }
