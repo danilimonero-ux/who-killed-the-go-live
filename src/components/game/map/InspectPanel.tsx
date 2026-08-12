@@ -1,6 +1,5 @@
 import { useState } from "react";
 import {
-  INTERACT_RANGE,
   discoveryKey,
   isStepUnlocked,
   objectById,
