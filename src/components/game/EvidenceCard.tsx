@@ -1,6 +1,14 @@
 import type { Suspect } from "@/lib/game";
 
-export function EvidenceCard({ suspect, showFinding = true }: { suspect: Suspect; showFinding?: boolean }) {
+export function EvidenceCard({
+  suspect,
+  showFinding = true,
+  showAnswer = true,
+}: {
+  suspect: Suspect;
+  showFinding?: boolean;
+  showAnswer?: boolean;
+}) {
   const positive = suspect.delta > 0;
   return (
     <div className="panel noir-grain relative overflow-hidden p-5 md:p-6">
