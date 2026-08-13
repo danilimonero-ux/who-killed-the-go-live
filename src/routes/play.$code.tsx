@@ -9,17 +9,22 @@ import {
   GAME_SECONDS,
   OPENING_ORDER,
   SOCRATIC,
+  ZONES,
+
   isCorrect,
   objectById,
   scoreRun,
   type Accusation,
   type Action,
 } from "@/lib/case";
-import { CasaMap } from "@/components/casa/CasaMap";
+import { CasaMap, type MapAvatar } from "@/components/casa/CasaMap";
 import { InspectCard } from "@/components/casa/InspectCard";
 import { EvidenceBoardPanel } from "@/components/casa/EvidenceBoardPanel";
 import { AccuseWizard } from "@/components/casa/AccuseWizard";
 import { Debrief } from "@/components/casa/Debrief";
+import { CharacterSelect } from "@/components/casa/CharacterSelect";
+import { INVESTIGATORS, investigatorById } from "@/lib/investigators";
+
 
 export const Route = createFileRoute("/play/$code")({
   head: () => ({
@@ -54,6 +59,8 @@ function PlayerScreen() {
   const [result, setResult] = useState<"wrong" | "saved" | null>(null);
   const [resetAsk, setResetAsk] = useState(false);
   const [alertOn, setAlertOn] = useState(false);
+  const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
   const { state, record, reset, escalate } = usePrivateCase(code, playerId);
   const left = useCountdown(room?.timer_ends_at ?? null);
 
@@ -61,6 +68,38 @@ function PlayerScreen() {
 
   const me = players.find((p) => p.id === playerId) ?? null;
   const running = room?.phase === "running";
+
+  const join = async (investigatorId: string) => {
+    if (!room) return;
+    setJoining(true);
+    setJoinError(null);
+    const inv = INVESTIGATORS.find((i) => i.id === investigatorId);
+    const { data, error } = await supabase
+      .from("players")
+      .insert({
+        room_id: room.id,
+        name: inv?.name ?? "Detective",
+        role: investigatorId,
+        status: "lobby",
+        zone: "restaurant",
+      })
+      .select()
+      .single();
+    if (error || !data) {
+      setJoinError("That investigator was just taken. Pick another one.");
+      setJoining(false);
+      return;
+    }
+    storePlayerId(code, data.id);
+    setPlayerId(data.id);
+    setJoining(false);
+  };
+
+  const goZone = (zoneId: string) => {
+    if (!me || me.zone === zoneId) return;
+    void supabase.from("players").update({ zone: zoneId }).eq("id", me.id);
+  };
+
 
   // mid-game escalation
   useEffect(() => {
@@ -90,13 +129,12 @@ function PlayerScreen() {
   if (missing || !room) return <Shell>No investigation found for code {code}.</Shell>;
   if (!me)
     return (
-      <LateJoin
+      <CharacterSelect
         code={code}
-        roomId={room.id}
-        onJoined={(id) => {
-          storePlayerId(code, id);
-          setPlayerId(id);
-        }}
+        takenRoles={players.filter((p) => !p.is_host && p.role).map((p) => p.role as string)}
+        busy={joining}
+        error={joinError}
+        onJoin={(investigatorId) => void join(investigatorId)}
       />
     );
 
@@ -104,6 +142,14 @@ function PlayerScreen() {
   const confidence = state.escalated ? 45 : 70;
   const solvedCount = players.filter((p) => p.status === "saved").length;
   const detectives = players.filter((p) => !p.is_host);
+  const myInv = investigatorById(me.role);
+  const avatars: MapAvatar[] = detectives
+    .map((p) => {
+      const inv = investigatorById(p.role);
+      return inv ? { id: p.id, zone: p.zone ?? "restaurant", isMe: p.id === me.id, inv } : null;
+    })
+    .filter((a): a is MapAvatar => a !== null);
+
 
   const runAction = (a: Action) => {
     if (state.done.includes(a.id)) return;
@@ -208,68 +254,171 @@ function PlayerScreen() {
     return <OpeningStory onDone={() => setStory(false)} />;
 
   return (
-    <main className="fixed inset-0 flex flex-col overflow-hidden bg-background">
-      <header className="z-30 flex shrink-0 flex-wrap items-center gap-3 border-b border-border/70 bg-black/60 px-4 py-2 backdrop-blur">
-        <div className="min-w-0">
-          <div className="label-caps text-[10px]">{room.code} · Casa Fuego</div>
-          <div className="font-display text-lg uppercase leading-none">{me.name}</div>
+    <main className="fixed inset-0 flex flex-col overflow-hidden bg-[#0b0e14]">
+      {/* ── top bar ─────────────────────────────────────────── */}
+      <header className="z-30 flex shrink-0 items-center gap-4 border-b border-white/10 bg-[#11151d] px-4 py-2">
+        <div className="hidden items-center gap-2 md:flex">
+          {["🔎 Investigate", "🧠 Connect", "🚨 Accuse"].map((s, i) => (
+            <span
+              key={s}
+              className={`rounded-full border px-3 py-1 font-display text-[11px] uppercase tracking-[0.18em] ${
+                i === 0 ? "border-primary/70 text-primary" : "border-white/10 text-white/40"
+              }`}
+            >
+              {s}
+            </span>
+          ))}
         </div>
-        <div className="font-display text-3xl tabular-nums leading-none">
-          ⏱ {fmt(left)}
-        </div>
-        <div className="font-display text-xl leading-none">
-          {"❤️".repeat(attemptsLeft)}
-          {"🖤".repeat(3 - attemptsLeft)}
-        </div>
-        <div className="label-caps text-[11px]">🔎 Evidence {state.found.length}</div>
-        <div className="label-caps text-[11px]">🏅 {me.score}</div>
-        <div className="flex items-center gap-2">
-          <span className="label-caps text-[11px]">Go-live confidence</span>
-          <div className="h-2 w-28 overflow-hidden rounded-full bg-muted">
-            <div
-              className={`h-full ${confidence >= 60 ? "bg-warn" : "bg-nogo"}`}
-              style={{ width: `${confidence}%` }}
-            />
-          </div>
-          <span className="font-display text-sm">{confidence}%</span>
+        <div className="mx-auto flex items-center gap-3">
+          <span className="label-caps text-[10px]">⏱ Time left</span>
+          <span className="font-display text-4xl tabular-nums leading-none text-primary">
+            {fmt(left)}
+          </span>
         </div>
         <div className="ml-auto flex items-center gap-2">
+          <span className="label-caps text-[11px]">👥 {detectives.length}</span>
           <span className="label-caps text-[11px] text-go">
             🟢 {solvedCount}/{detectives.length} saved
           </span>
           <button
-            onClick={() => setBoard(true)}
-            className="rounded-md border border-border px-3 py-1.5 font-display text-xs uppercase hover:border-primary hover:text-primary"
-          >
-            🗂️ Evidence board
-          </button>
-          <button
-            onClick={() => setAccusing(true)}
-            className="rounded-md bg-destructive px-4 py-1.5 font-display text-xs uppercase tracking-wider text-destructive-foreground hover:brightness-110"
-          >
-            🚨 Save the go-live
-          </button>
-          <button
             onClick={() => setResetAsk(true)}
             title="Reset investigation"
-            className="rounded-md border border-border px-2.5 py-1.5 text-xs hover:border-primary"
+            className="rounded-md border border-white/15 px-2.5 py-1.5 text-xs hover:border-primary"
           >
             ⚙️
           </button>
         </div>
       </header>
 
-      <div className="relative min-h-0 flex-1">
-        <CasaMap
-          found={state.found}
-          doneActions={state.done}
-          selected={selected}
-          onSelect={setSelected}
-        />
-        <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-border/70 bg-black/70 px-4 py-1.5 text-xs text-muted-foreground backdrop-blur">
-          Click any glowing object · 🔎 Inspect · 📡 Ping · 🔗 Trace · 🧪 Test · 👤 Ask
+      <div className="flex min-h-0 flex-1">
+        {/* ── left panel ───────────────────────────────────── */}
+        <aside className="hidden w-[22%] min-w-[240px] shrink-0 flex-col gap-3 overflow-y-auto border-r border-white/10 bg-[#11151d] p-4 lg:flex">
+          <div>
+            <div className="label-caps text-[10px]">Room {room.code}</div>
+            <h1 className="font-display text-2xl uppercase leading-none">
+              Who killed the <span className="text-primary">go-live?</span>
+            </h1>
+          </div>
+
+          {myInv && (
+            <div className="panel flex items-center gap-3 p-3">
+              <div
+                className="h-16 w-16 shrink-0 overflow-hidden rounded-full border-2 bg-black/40"
+                style={{ borderColor: myInv.accent }}
+              >
+                <img
+                  src={myInv.portrait}
+                  alt={myInv.name}
+                  loading="lazy"
+                  width={512}
+                  height={512}
+                  className="h-full w-full object-cover object-top"
+                />
+              </div>
+              <div className="min-w-0">
+                <div className="font-display text-sm uppercase leading-tight">{myInv.name}</div>
+                <div className="label-caps text-[10px]" style={{ color: myInv.accent }}>
+                  {myInv.icon} {myInv.role}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <Stat k="Evidence" v={`${state.found.length}`} />
+            <Stat k="Score" v={`${me.score}`} />
+            <Stat k="Attempts" v={"❤️".repeat(attemptsLeft) || "—"} />
+
+          </div>
+
+          <div className="panel p-3">
+            <div className="label-caps text-[10px]">On the scene</div>
+            <ul className="mt-2 space-y-1.5">
+              {avatars.map((a) => (
+                <li key={a.id} className="flex items-center gap-2 text-xs">
+                  <span
+                    className="h-2 w-2 rounded-full"
+                    style={{ background: a.inv.accent }}
+                    aria-hidden
+                  />
+                  <span className={a.isMe ? "text-primary" : "text-white/70"}>{a.inv.short}</span>
+                  <span className="ml-auto text-white/35">
+                    {ZONES.find((z) => z.id === a.zone)?.name ?? "—"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <button
+            onClick={() => setBoard(true)}
+            className="rounded-md border border-white/15 px-3 py-2.5 font-display text-sm uppercase hover:border-primary hover:text-primary"
+          >
+            🗂️ Evidence board
+          </button>
+          <button
+            onClick={() => setAccusing(true)}
+            className="rounded-md bg-destructive px-4 py-3 font-display text-base uppercase tracking-wider text-destructive-foreground hover:brightness-110"
+          >
+            🚨 Save the go-live
+          </button>
+        </aside>
+
+        {/* ── map ──────────────────────────────────────────── */}
+        <div className="relative min-h-0 min-w-0 flex-1 bg-[#0b0e14] p-3">
+          <CasaMap
+            found={state.found}
+            doneActions={state.done}
+            selected={selected}
+            avatars={avatars}
+            myZone={me.zone ?? null}
+            onZone={goZone}
+            onSelect={setSelected}
+          />
+          <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border border-white/10 bg-black/75 px-4 py-1.5 text-xs text-muted-foreground backdrop-blur">
+            Click a room to move · click any glowing object · 🔎 Inspect · 📡 Ping · 🔗 Trace · 🧪
+            Test
+          </div>
+          <div className="absolute right-4 top-4 flex gap-2 lg:hidden">
+            <button
+              onClick={() => setBoard(true)}
+              className="rounded-md border border-white/15 bg-black/70 px-3 py-1.5 font-display text-xs uppercase"
+            >
+              🗂️
+            </button>
+            <button
+              onClick={() => setAccusing(true)}
+              className="rounded-md bg-destructive px-3 py-1.5 font-display text-xs uppercase text-destructive-foreground"
+            >
+              🚨 Accuse
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* ── bottom HUD ─────────────────────────────────────── */}
+      <footer className="z-30 flex shrink-0 flex-wrap items-center gap-4 border-t border-white/10 bg-[#11151d] px-4 py-2">
+        <div className="flex items-center gap-2">
+          <span className="label-caps text-[10px]">Go-live confidence</span>
+          <div className="h-2 w-36 overflow-hidden rounded-full bg-muted">
+            <div
+              className={`h-full transition-all ${confidence >= 60 ? "bg-warn" : "bg-nogo"}`}
+              style={{ width: `${confidence}%` }}
+            />
+          </div>
+          <span className="font-display text-sm">{confidence}%</span>
+        </div>
+        <div className="label-caps text-[11px]">🔎 Evidence found · {state.found.length}</div>
+        <div className="label-caps text-[11px]">
+          📍 {ZONES.find((z) => z.id === (me.zone ?? "restaurant"))?.name ?? "Dining Room"}
+        </div>
+        <div className="ml-auto truncate text-xs text-muted-foreground">
+          {state.escalated
+            ? "🚨 Table 8 order failed — confidence dropped to 45%."
+            : "19:07 · 23 minutes to launch · the ribeye never printed."}
+        </div>
+      </footer>
+
 
       {selected && objectById(selected) && (
         <InspectCard
@@ -584,54 +733,6 @@ function Modal({ children }: { children: React.ReactNode }) {
   );
 }
 
-function LateJoin({
-  code,
-  roomId,
-  onJoined,
-}: {
-  code: string;
-  roomId: string;
-  onJoined: (id: string) => void;
-}) {
-  const [name, setName] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    const { data } = await supabase
-      .from("players")
-      .insert({ room_id: roomId, name: name.trim() || "Detective", status: "lobby" })
-      .select()
-      .single();
-    if (data) onJoined(data.id);
-    else setBusy(false);
-  }
-
-  return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-5">
-      <div className="panel noir-grain p-6">
-        <div className="label-caps">Room {code}</div>
-        <h1 className="mt-1 font-display text-3xl uppercase">Join the investigation</h1>
-        <form onSubmit={submit} className="mt-4 space-y-3">
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Your name"
-            required
-            className="w-full rounded-md border border-input bg-background/60 px-4 py-3 outline-none focus:border-primary"
-          />
-          <button
-            disabled={busy}
-            className="w-full rounded-md bg-primary px-5 py-3 font-display text-lg uppercase tracking-wider text-primary-foreground hover:brightness-110 disabled:opacity-60"
-          >
-            Enter Casa Fuego
-          </button>
-        </form>
-      </div>
-    </main>
-  );
-}
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (

@@ -30,7 +30,6 @@ function Landing() {
   const navigate = useNavigate();
   const [mode, setMode] = useState<"none" | "join">("none");
   const [code, setCode] = useState("");
-  const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,19 +63,9 @@ function Landing() {
       setBusy(false);
       return;
     }
-    const { data: player } = await supabase
-      .from("players")
-      .insert({ room_id: room.id, name: name.trim() || "Detective", status: "lobby" })
-      .select()
-      .single();
-    if (!player) {
-      setError("Could not join. Try again.");
-      setBusy(false);
-      return;
-    }
-    storePlayerId(c, player.id);
     void navigate({ to: "/play/$code", params: { code: c } });
   }
+
 
   return (
     <main className="noir-grain relative mx-auto flex min-h-screen max-w-6xl flex-col justify-center px-5 py-12">
@@ -120,8 +109,8 @@ function Landing() {
           {mode === "none" ? (
             <>
               <p className="mt-2 text-sm text-muted-foreground">
-                Enter the room code your Game Master is showing. No roles, no logins — everyone gets
-                the same tools.
+                Enter the room code your Game Master is showing, then pick one of the six
+                investigators. Each one can only be taken once.
               </p>
               <button
                 onClick={() => setMode("join")}
@@ -140,21 +129,15 @@ function Landing() {
                 required
                 className="w-full rounded-md border border-input bg-background/60 px-4 py-3 text-center font-display text-2xl uppercase tracking-[0.4em] outline-none focus:border-primary"
               />
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Your name"
-                required
-                className="w-full rounded-md border border-input bg-background/60 px-4 py-3 outline-none focus:border-primary"
-              />
               <button
                 disabled={busy}
                 className="w-full rounded-md bg-primary px-5 py-3 font-display text-lg uppercase tracking-wider text-primary-foreground transition hover:brightness-110 disabled:opacity-60"
               >
-                Join the investigation
+                Choose your investigator
               </button>
             </form>
           )}
+
         </div>
       </div>
 
