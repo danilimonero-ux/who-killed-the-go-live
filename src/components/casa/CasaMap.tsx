@@ -90,6 +90,7 @@ export function CasaMap({
   myZone,
   onZone,
   onSelect,
+  onAvatarClick,
   readOnly = false,
 }: {
   found: string[];
@@ -99,6 +100,7 @@ export function CasaMap({
   myZone?: string | null;
   onZone?: (zoneId: string) => void;
   onSelect: (id: string | null) => void;
+  onAvatarClick?: (playerId: string) => void;
   readOnly?: boolean;
 }) {
   const wrap = useRef<HTMLDivElement>(null);
@@ -271,49 +273,20 @@ export function CasaMap({
         ))}
 
         {/* investigator standees */}
-        {avatars.map((a, idx) => {
+        {avatars.map((a) => {
           const z = ZONES.find((zz) => zz.id === a.zone) ?? ZONES[0]!;
           const peers = avatars.filter((p) => p.zone === a.zone);
           const slot = peers.findIndex((p) => p.id === a.id);
-          const wx = z.x + z.w / 2 + (slot - (peers.length - 1) / 2) * Math.min(120, z.w / 3.2);
-          const wy = z.y + z.h - 70;
-          const ground = at(wx, wy);
+          const spread = Math.min(130, z.w / 3.2);
+          const wx = z.x + z.w / 2 + (slot - (peers.length - 1) / 2) * spread;
+          const wy = z.y + z.h - 80 + (slot % 2 === 0 ? 0 : 46);
           return (
-            <div
+            <Standee
               key={a.id}
-              className="pointer-events-none absolute z-40 transition-all duration-[900ms] ease-out"
-              style={{ ...ground, transitionDelay: `${idx * 30}ms` }}
-            >
-              <div
-                className="absolute -translate-x-1/2 -translate-y-1/2 rounded-[50%] bg-black/60 blur-[4px]"
-                style={{ width: 76, height: 30 }}
-              />
-              <div className="absolute bottom-0 left-0 flex -translate-x-1/2 flex-col items-center">
-                <div
-                  className="mb-0.5 whitespace-nowrap rounded-full border px-2 py-0.5 font-display text-[11px] uppercase tracking-wider"
-                  style={{
-                    color: a.isMe ? "var(--primary)" : a.inv.accent,
-                    borderColor: a.isMe ? "var(--primary)" : a.inv.accent,
-                    background: "rgba(6,8,12,0.88)",
-                  }}
-                >
-                  {a.inv.short}
-                </div>
-                <img
-                  src={a.inv.portrait}
-                  alt={a.inv.name}
-                  loading="lazy"
-                  width={768}
-                  height={1024}
-                  className={a.isMe ? "h-[140px] w-auto" : "h-[118px] w-auto"}
-                  style={{
-                    filter: `drop-shadow(0 12px 12px rgba(0,0,0,0.8)) drop-shadow(0 0 12px ${
-                      a.isMe ? "rgba(255,150,60,0.6)" : "transparent"
-                    })`,
-                  }}
-                />
-              </div>
-            </div>
+              a={a}
+              pos={at(wx, wy)}
+              onClick={onAvatarClick ? () => onAvatarClick(a.id) : undefined}
+            />
           );
         })}
       </div>
@@ -342,5 +315,78 @@ function Wall({ x, y, len, axis }: { x: number; y: number; len: number; axis: "x
         boxShadow: "inset 0 -30px 40px -20px rgba(0,0,0,0.8)",
       }}
     />
+  );
+}
+
+/** A full-body investigator standee that visibly walks to its new room. */
+function Standee({
+  a,
+  pos,
+  onClick,
+}: {
+  a: MapAvatar;
+  pos: { left: number; top: number };
+  onClick?: (() => void) | undefined;
+}) {
+  const prevZone = useRef(a.zone);
+  const [walking, setWalking] = useState(false);
+
+  useEffect(() => {
+    if (prevZone.current === a.zone) return;
+    prevZone.current = a.zone;
+    setWalking(true);
+    const t = setTimeout(() => setWalking(false), 1000);
+    return () => clearTimeout(t);
+  }, [a.zone]);
+
+  const accent = a.isMe ? "var(--primary)" : a.inv.accent;
+
+  return (
+    <div
+      className="absolute z-40 transition-[left,top] duration-[900ms] ease-in-out"
+      style={{ ...pos, pointerEvents: onClick ? "auto" : "none" }}
+    >
+      <div
+        className="absolute -translate-x-1/2 -translate-y-1/2 rounded-[50%] bg-black/60 blur-[4px] transition-all duration-300"
+        style={{ width: walking ? 62 : 76, height: walking ? 24 : 30 }}
+      />
+      {walking && (
+        <div
+          className="absolute -translate-x-1/2 -translate-y-1/2 animate-ping rounded-[50%]"
+          style={{ width: 90, height: 34, border: `2px solid ${accent}`, opacity: 0.5 }}
+        />
+      )}
+      <div
+        onClick={onClick}
+        role={onClick ? "button" : undefined}
+        tabIndex={onClick ? 0 : undefined}
+        onKeyDown={(e) => {
+          if (onClick && (e.key === "Enter" || e.key === " ")) onClick();
+        }}
+        className={`absolute bottom-0 left-0 flex -translate-x-1/2 flex-col items-center ${
+          onClick ? "cursor-pointer" : ""
+        } ${walking ? "casa-walk" : ""}`}
+      >
+        <div
+          className="mb-0.5 whitespace-nowrap rounded-full border px-2 py-0.5 font-display text-[11px] uppercase tracking-wider"
+          style={{ color: accent, borderColor: accent, background: "rgba(6,8,12,0.88)" }}
+        >
+          {a.inv.short}
+        </div>
+        <img
+          src={a.inv.portrait}
+          alt={a.inv.name}
+          loading="lazy"
+          width={768}
+          height={1024}
+          className={a.isMe ? "h-[140px] w-auto" : "h-[118px] w-auto"}
+          style={{
+            filter: `drop-shadow(0 12px 12px rgba(0,0,0,0.8)) drop-shadow(0 0 12px ${
+              a.isMe || walking ? accent : "transparent"
+            })`,
+          }}
+        />
+      </div>
+    </div>
   );
 }

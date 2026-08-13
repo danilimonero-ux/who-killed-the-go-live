@@ -137,3 +137,15 @@
   box-shadow: 0 0 0 1px color-mix(in oklab, var(--ember) 45%, transparent),
     0 0 40px -12px var(--ember);
 }
+
+/* investigator walk bob between rooms */
+@keyframes casa-walk-bob {
+  0% { transform: translateX(-50%) translateY(0) rotate(0deg); }
+  25% { transform: translateX(-50%) translateY(-10px) rotate(-3deg); }
+  50% { transform: translateX(-50%) translateY(0) rotate(0deg); }
+  75% { transform: translateX(-50%) translateY(-10px) rotate(3deg); }
+  100% { transform: translateX(-50%) translateY(0) rotate(0deg); }
+}
+.casa-walk {
+  animation: casa-walk-bob 0.42s ease-in-out 3;
+}

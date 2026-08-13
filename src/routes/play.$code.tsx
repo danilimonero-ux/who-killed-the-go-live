@@ -24,6 +24,7 @@ import { AccuseWizard } from "@/components/casa/AccuseWizard";
 import { Debrief } from "@/components/casa/Debrief";
 import { CharacterSelect } from "@/components/casa/CharacterSelect";
 import { INVESTIGATORS, investigatorById } from "@/lib/investigators";
+import { logEvent } from "@/lib/host-live";
 
 
 export const Route = createFileRoute("/play/$code")({
@@ -61,6 +62,7 @@ function PlayerScreen() {
   const [alertOn, setAlertOn] = useState(false);
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
+  const [optimisticZone, setOptimisticZone] = useState<string | null>(null);
   const { state, record, reset, escalate } = usePrivateCase(code, playerId);
   const left = useCountdown(room?.timer_ends_at ?? null);
 
@@ -96,9 +98,26 @@ function PlayerScreen() {
   };
 
   const goZone = (zoneId: string) => {
-    if (!me || me.zone === zoneId) return;
+    if (!me || !room) return;
+    const current = optimisticZone ?? me.zone;
+    if (current === zoneId) return;
+    setOptimisticZone(zoneId); // optimistic: move the standee right away
     void supabase.from("players").update({ zone: zoneId }).eq("id", me.id);
+    logEvent({
+      room_id: room.id,
+      player_id: me.id,
+      player_name: me.name,
+      role: me.role,
+      kind: "move",
+      message: `moved to ${ZONES.find((z) => z.id === zoneId)?.name ?? zoneId}`,
+    });
   };
+
+  // drop the optimistic zone once the server confirms it
+  useEffect(() => {
+    if (optimisticZone && me?.zone === optimisticZone) setOptimisticZone(null);
+  }, [me?.zone, optimisticZone]);
+
 
 
   // mid-game escalation
@@ -118,12 +137,24 @@ function PlayerScreen() {
     }
   }, [left, me, running]);
 
-  // keep evidence count in sync (only a number, never the content)
+  // sync private investigation progress to the backend (Host monitoring only)
+  const foundKey = state.found.join(",");
+  const doneKey = state.done.join(",");
   useEffect(() => {
-    if (!me || me.status !== "investigating") return;
-    if (me.evidence_count === state.found.length) return;
-    void supabase.from("players").update({ evidence_count: state.found.length }).eq("id", me.id);
-  }, [state.found.length, me]);
+    if (!me) return;
+    const sameFound = (me.found_ids ?? []).join(",") === foundKey;
+    const sameDone = (me.done_ids ?? []).join(",") === doneKey;
+    if (sameFound && sameDone && me.evidence_count === state.found.length) return;
+    void supabase
+      .from("players")
+      .update({
+        evidence_count: state.found.length,
+        found_ids: state.found,
+        done_ids: state.done,
+      })
+      .eq("id", me.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [foundKey, doneKey, me?.id]);
 
   if (loading) return <Shell>Connecting to Casa Fuego…</Shell>;
   if (missing || !room) return <Shell>No investigation found for code {code}.</Shell>;
@@ -146,7 +177,9 @@ function PlayerScreen() {
   const avatars: MapAvatar[] = detectives
     .map((p) => {
       const inv = investigatorById(p.role);
-      return inv ? { id: p.id, zone: p.zone ?? "restaurant", isMe: p.id === me.id, inv } : null;
+      const isMe = p.id === me.id;
+      const zone = (isMe ? (optimisticZone ?? p.zone) : p.zone) ?? "restaurant";
+      return inv ? { id: p.id, zone, isMe, inv } : null;
     })
     .filter((a): a is MapAvatar => a !== null);
 
@@ -154,12 +187,48 @@ function PlayerScreen() {
   const runAction = (a: Action) => {
     if (state.done.includes(a.id)) return;
     record(a.id, a.evidence?.id);
+    const obj = selected ? objectById(selected) : null;
+    logEvent({
+      room_id: room.id,
+      player_id: me.id,
+      player_name: me.name,
+      role: me.role,
+      kind: a.evidence ? "evidence" : "action",
+      message: a.evidence
+        ? `discovered evidence: ${a.evidence.title}${obj ? ` (${obj.name})` : ""}`
+        : `performed ${a.label}${obj ? ` on ${obj.name}` : ""}`,
+    });
   };
 
   const submit = async (a: Accusation) => {
     const ok = isCorrect(a);
     const attempts = me.attempts_used + 1;
     const secondsLeft = left ?? 0;
+    await supabase.from("accusations").insert({
+      room_id: room.id,
+      player_id: me.id,
+      player_name: me.name,
+      role: me.role,
+      attempt: attempts,
+      what: a.what,
+      root: a.root,
+      killer: a.killer,
+      weapon: a.weapon,
+      decision: a.decision,
+      correct: ok,
+    });
+    logEvent({
+      room_id: room.id,
+      player_id: me.id,
+      player_name: me.name,
+      role: me.role,
+      kind: ok ? "saved" : attempts >= 3 ? "fired" : "wrong",
+      message: ok
+        ? `SAVED THE GO-LIVE on attempt ${attempts}/3`
+        : attempts >= 3
+          ? `wrong accusation (attempt ${attempts}/3) — FIRED`
+          : `wrong accusation (attempt ${attempts}/3)`,
+    });
     if (ok) {
       const score = scoreRun({
         a,
@@ -371,7 +440,7 @@ function PlayerScreen() {
             doneActions={state.done}
             selected={selected}
             avatars={avatars}
-            myZone={me.zone ?? null}
+            myZone={optimisticZone ?? me.zone ?? null}
             onZone={goZone}
             onSelect={setSelected}
           />
@@ -410,7 +479,7 @@ function PlayerScreen() {
         </div>
         <div className="label-caps text-[11px]">🔎 Evidence found · {state.found.length}</div>
         <div className="label-caps text-[11px]">
-          📍 {ZONES.find((z) => z.id === (me.zone ?? "restaurant"))?.name ?? "Dining Room"}
+          📍 {ZONES.find((z) => z.id === (optimisticZone ?? me.zone ?? "restaurant"))?.name ?? "Dining Room"}
         </div>
         <div className="ml-auto truncate text-xs text-muted-foreground">
           {state.escalated
@@ -459,6 +528,18 @@ function PlayerScreen() {
             <button
               onClick={() => {
                 reset();
+                void supabase
+                  .from("players")
+                  .update({ evidence_count: 0, found_ids: [], done_ids: [] })
+                  .eq("id", me.id);
+                logEvent({
+                  room_id: room.id,
+                  player_id: me.id,
+                  player_name: me.name,
+                  role: me.role,
+                  kind: "reset",
+                  message: "reset their investigation (attempts kept)",
+                });
                 setResetAsk(false);
                 setSelected(null);
               }}
