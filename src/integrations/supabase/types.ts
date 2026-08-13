@@ -91,6 +91,7 @@ export type Database = {
           score: number
           solved_at: string | null
           status: string
+          zone: string | null
         }
         Insert: {
           attempts_used?: number
@@ -108,6 +109,7 @@ export type Database = {
           score?: number
           solved_at?: string | null
           status?: string
+          zone?: string | null
         }
         Update: {
           attempts_used?: number
@@ -125,6 +127,7 @@ export type Database = {
           score?: number
           solved_at?: string | null
           status?: string
+          zone?: string | null
         }
         Relationships: [
           {

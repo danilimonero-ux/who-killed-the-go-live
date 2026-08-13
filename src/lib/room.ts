@@ -29,6 +29,8 @@ export type Player = {
   finish_seconds: number | null;
   decision: string | null;
   red_herrings: number;
+  zone: string | null;
+
 };
 
 export type Vote = {

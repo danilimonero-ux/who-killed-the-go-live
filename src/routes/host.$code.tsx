@@ -1,3 +1,4 @@
+import { investigatorById } from "@/lib/investigators";
 import { createFileRoute } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { useCountdown, useRoom, type Player } from "@/lib/room";
@@ -111,18 +112,48 @@ function HostScreen() {
       <section className="panel mt-5 p-5">
         <div className="label-caps">Implementers ({detectives.length})</div>
         <ul className="mt-3 grid gap-2 md:grid-cols-2">
-          {detectives.map((p) => (
-            <li
-              key={p.id}
-              className="flex items-center justify-between gap-3 rounded-md border border-border px-4 py-3"
-            >
-              <span className="font-display text-lg uppercase">{p.name}</span>
-              <span className="flex items-center gap-3 text-sm">
-                <span>{"❤️".repeat(Math.max(0, 3 - p.attempts_used))}</span>
-                <StatusPill status={p.status} />
-              </span>
-            </li>
-          ))}
+          {detectives.map((p) => {
+            const inv = investigatorById(p.role);
+            return (
+              <li
+                key={p.id}
+                className="flex items-center justify-between gap-3 rounded-md border border-border px-4 py-3"
+              >
+                <span className="flex min-w-0 items-center gap-3">
+                  {inv && (
+                    <span
+                      className="h-10 w-10 shrink-0 overflow-hidden rounded-full border-2 bg-black/40"
+                      style={{ borderColor: inv.accent }}
+                    >
+                      <img
+                        src={inv.portrait}
+                        alt={inv.name}
+                        loading="lazy"
+                        width={512}
+                        height={512}
+                        className="h-full w-full object-cover object-top"
+                      />
+                    </span>
+                  )}
+                  <span className="min-w-0">
+                    <span className="block truncate font-display text-lg uppercase leading-tight">
+                      {p.name}
+                    </span>
+                    {inv && (
+                      <span className="label-caps text-[10px]" style={{ color: inv.accent }}>
+                        {inv.icon} {inv.role}
+                      </span>
+                    )}
+                  </span>
+                </span>
+                <span className="flex items-center gap-3 text-sm">
+                  <span>{"❤️".repeat(Math.max(0, 3 - p.attempts_used))}</span>
+                  <StatusPill status={p.status} />
+                </span>
+              </li>
+            );
+          })}
+
           {detectives.length === 0 && (
             <li className="text-muted-foreground">Waiting for players to join with the code.</li>
           )}

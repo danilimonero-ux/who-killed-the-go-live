@@ -9,20 +9,28 @@ export const GAME_SECONDS = 600;
 
 export type Rect = { x: number; y: number; w: number; h: number };
 
-export type Zone = Rect & { id: string; name: string; icon: string; floor: string };
+export type Zone = Rect & {
+  id: string;
+  name: string;
+  icon: string;
+  floor: string;
+  /** cosmetic subtitle shown on the map label */
+  sub: string;
+};
 
 export const ZONES: Zone[] = [
-  { id: "network", name: "Network Room", icon: "🌐", x: 0, y: 0, w: 320, h: 470, floor: "#232a2e" },
-  { id: "office", name: "Back Office", icon: "🖥️", x: 320, y: 0, w: 440, h: 470, floor: "#272320" },
-  { id: "hot", name: "Hot Kitchen", icon: "🔥", x: 760, y: 0, w: 320, h: 300, floor: "#33241d" },
-  { id: "cold", name: "Cold Kitchen", icon: "❄️", x: 1080, y: 0, w: 280, h: 300, floor: "#20262b" },
-  { id: "desserts", name: "Desserts", icon: "🍰", x: 1360, y: 0, w: 240, h: 300, floor: "#2b2130" },
-  { id: "pass", name: "Kitchen Pass", icon: "👨‍🍳", x: 760, y: 300, w: 840, h: 170, floor: "#2c2621" },
-  { id: "hostess", name: "Hostess", icon: "🛎️", x: 0, y: 470, w: 320, h: 430, floor: "#2c2419" },
-  { id: "restaurant", name: "Restaurant", icon: "🍽️", x: 320, y: 470, w: 860, h: 430, floor: "#3a2a20" },
-  { id: "bar", name: "Bar", icon: "🍸", x: 1180, y: 470, w: 260, h: 430, floor: "#33251d" },
-  { id: "pos1", name: "POS 1", icon: "🧾", x: 1440, y: 470, w: 160, h: 430, floor: "#262c26" },
+  { id: "network", name: "Terrace · Network", icon: "🌐", sub: "Network & devices", x: 0, y: 0, w: 320, h: 470, floor: "#232a2e" },
+  { id: "office", name: "Office", icon: "🖥️", sub: "Back office & config", x: 320, y: 0, w: 440, h: 470, floor: "#272320" },
+  { id: "hot", name: "Hot Kitchen", icon: "🔥", sub: "Printers & KDS", x: 760, y: 0, w: 320, h: 300, floor: "#33241d" },
+  { id: "cold", name: "Cold Kitchen", icon: "❄️", sub: "Printers & KDS", x: 1080, y: 0, w: 280, h: 300, floor: "#20262b" },
+  { id: "desserts", name: "Desserts", icon: "🍰", sub: "Printers & KDS", x: 1360, y: 0, w: 240, h: 300, floor: "#2b2130" },
+  { id: "pass", name: "Kitchen Pass", icon: "👨‍🍳", sub: "Tickets & staff", x: 760, y: 300, w: 840, h: 170, floor: "#2c2621" },
+  { id: "hostess", name: "Reception", icon: "🛎️", sub: "PMS & payments", x: 0, y: 470, w: 320, h: 430, floor: "#2c2419" },
+  { id: "restaurant", name: "Dining Room", icon: "🍽️", sub: "Order profiles & menus", x: 320, y: 470, w: 860, h: 430, floor: "#3a2a20" },
+  { id: "bar", name: "Bar", icon: "🍸", sub: "Receipts & payments", x: 1180, y: 470, w: 260, h: 430, floor: "#33251d" },
+  { id: "pos1", name: "Storage · POS 1", icon: "🧾", sub: "Receipts & stock", x: 1440, y: 470, w: 160, h: 430, floor: "#262c26" },
 ];
+
 
 export type EvidenceKind = "key" | "alibi" | "herring" | "context";
 
