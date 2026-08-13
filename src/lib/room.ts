@@ -30,7 +30,8 @@ export type Player = {
   decision: string | null;
   red_herrings: number;
   zone: string | null;
-
+  found_ids: string[];
+  done_ids: string[];
 };
 
 export type Vote = {

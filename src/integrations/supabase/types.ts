@@ -14,6 +14,69 @@ export type Database = {
   }
   public: {
     Tables: {
+      accusations: {
+        Row: {
+          attempt: number
+          correct: boolean
+          created_at: string
+          decision: string | null
+          id: string
+          killer: string | null
+          player_id: string | null
+          player_name: string
+          role: string | null
+          room_id: string
+          root: string | null
+          weapon: string | null
+          what: string | null
+        }
+        Insert: {
+          attempt?: number
+          correct?: boolean
+          created_at?: string
+          decision?: string | null
+          id?: string
+          killer?: string | null
+          player_id?: string | null
+          player_name: string
+          role?: string | null
+          room_id: string
+          root?: string | null
+          weapon?: string | null
+          what?: string | null
+        }
+        Update: {
+          attempt?: number
+          correct?: boolean
+          created_at?: string
+          decision?: string | null
+          id?: string
+          killer?: string | null
+          player_id?: string | null
+          player_name?: string
+          role?: string | null
+          room_id?: string
+          root?: string | null
+          weapon?: string | null
+          what?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "accusations_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "accusations_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       discoveries: {
         Row: {
           created_at: string
@@ -74,13 +137,63 @@ export type Database = {
           },
         ]
       }
+      game_events: {
+        Row: {
+          created_at: string
+          id: string
+          kind: string
+          message: string
+          player_id: string | null
+          player_name: string | null
+          role: string | null
+          room_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          kind: string
+          message: string
+          player_id?: string | null
+          player_name?: string | null
+          role?: string | null
+          room_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          kind?: string
+          message?: string
+          player_id?: string | null
+          player_name?: string | null
+          role?: string | null
+          room_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "game_events_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "game_events_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       players: {
         Row: {
           attempts_used: number
           created_at: string
           decision: string | null
+          done_ids: string[]
           evidence_count: number
           finish_seconds: number | null
+          found_ids: string[]
           id: string
           is_host: boolean
           name: string
@@ -97,8 +210,10 @@ export type Database = {
           attempts_used?: number
           created_at?: string
           decision?: string | null
+          done_ids?: string[]
           evidence_count?: number
           finish_seconds?: number | null
+          found_ids?: string[]
           id?: string
           is_host?: boolean
           name: string
@@ -115,8 +230,10 @@ export type Database = {
           attempts_used?: number
           created_at?: string
           decision?: string | null
+          done_ids?: string[]
           evidence_count?: number
           finish_seconds?: number | null
+          found_ids?: string[]
           id?: string
           is_host?: boolean
           name?: string
