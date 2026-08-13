@@ -9,6 +9,83 @@ export type MapAvatar = {
   inv: Investigator;
 };
 
+/* ── isometric projection helpers ──────────────────────────── */
+const ROT_Z = 40; // deg
+const ROT_X = 54; // deg
+const WALL = 78; // wall height in world units
+
+const rad = (d: number) => (d * Math.PI) / 180;
+
+function projectedSize() {
+  const cz = Math.cos(rad(ROT_Z));
+  const sz = Math.sin(rad(ROT_Z));
+  const cx = Math.cos(rad(ROT_X));
+  const pts = [
+    [0, 0],
+    [WORLD_W, 0],
+    [0, WORLD_H],
+    [WORLD_W, WORLD_H],
+  ].map(([x, y]) => [x! * cz + y! * sz, (-x! * sz + y! * cz) * cx]);
+  const xs = pts.map((p) => p[0]!);
+  const ys = pts.map((p) => p[1]!);
+  return {
+    w: Math.max(...xs) - Math.min(...xs),
+    h: Math.max(...ys) - Math.min(...ys) + WALL * Math.sin(rad(ROT_X)),
+  };
+}
+const PROJ = projectedSize();
+
+/** children of the tilted board that must face the camera */
+const BILLBOARD = `rotateZ(${ROT_Z}deg) rotateX(${-ROT_X}deg)`;
+
+/* ── room furniture, expressed in world coordinates ────────── */
+type Prop = { x: number; y: number; icon: string; s?: number; o?: number };
+
+const FURNITURE: Prop[] = [
+  // terrace / network room
+  { x: 130, y: 170, icon: "🗄️", s: 34 },
+  { x: 250, y: 200, icon: "🪴", s: 30 },
+  { x: 120, y: 400, icon: "🧰", s: 26 },
+  { x: 250, y: 380, icon: "🪑", s: 24 },
+  // office
+  { x: 430, y: 130, icon: "🪑", s: 24 },
+  { x: 700, y: 130, icon: "📚", s: 28 },
+  { x: 420, y: 420, icon: "🗃️", s: 28 },
+  { x: 700, y: 420, icon: "🪴", s: 30 },
+  // hot kitchen
+  { x: 1010, y: 120, icon: "🔥", s: 26 },
+  { x: 1010, y: 230, icon: "🍳", s: 26 },
+  { x: 800, y: 240, icon: "🧑‍🍳", s: 26, o: 0.5 },
+  // cold kitchen
+  { x: 1120, y: 230, icon: "🥬", s: 26 },
+  { x: 1330, y: 90, icon: "🧊", s: 26 },
+  // desserts
+  { x: 1500, y: 170, icon: "🧁", s: 26 },
+  { x: 1400, y: 240, icon: "🍰", s: 24 },
+  // pass
+  { x: 990, y: 420, icon: "🍲", s: 26 },
+  { x: 1330, y: 420, icon: "🧂", s: 24 },
+  { x: 1470, y: 350, icon: "🧑‍🍳", s: 26, o: 0.5 },
+  // reception
+  { x: 190, y: 540, icon: "🛎️", s: 26 },
+  { x: 90, y: 830, icon: "🪴", s: 32 },
+  { x: 240, y: 820, icon: "🧳", s: 26 },
+  // dining room
+  { x: 420, y: 780, icon: "🪑", s: 30 },
+  { x: 620, y: 830, icon: "🪑", s: 30 },
+  { x: 760, y: 760, icon: "🪑", s: 30 },
+  { x: 1080, y: 800, icon: "🪑", s: 30 },
+  { x: 380, y: 560, icon: "🕯️", s: 24 },
+  { x: 1120, y: 560, icon: "🪴", s: 32 },
+  { x: 660, y: 540, icon: "🍽️", s: 26, o: 0.5 },
+  // bar
+  { x: 1220, y: 540, icon: "🍾", s: 28 },
+  { x: 1380, y: 540, icon: "🥃", s: 26 },
+  { x: 1240, y: 830, icon: "🍸", s: 26 },
+  // storage / pos1
+  { x: 1520, y: 830, icon: "📦", s: 28 },
+];
+
 export function CasaMap({
   found,
   doneActions,
@@ -17,6 +94,7 @@ export function CasaMap({
   myZone,
   onZone,
   onSelect,
+  readOnly = false,
 }: {
   found: string[];
   doneActions: string[];
@@ -25,16 +103,17 @@ export function CasaMap({
   myZone?: string | null;
   onZone?: (zoneId: string) => void;
   onSelect: (id: string | null) => void;
+  readOnly?: boolean;
 }) {
   const wrap = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
+  const [scale, setScale] = useState(0.5);
 
   useEffect(() => {
     const el = wrap.current;
     if (!el) return;
     const measure = () => {
-      const s = Math.min(el.clientWidth / WORLD_W, el.clientHeight / WORLD_H);
-      setScale(Math.max(0.2, s));
+      const s = Math.min(el.clientWidth / PROJ.w, el.clientHeight / PROJ.h) * 0.96;
+      setScale(Math.max(0.18, s));
     };
     measure();
     const ro = new ResizeObserver(measure);
@@ -43,65 +122,121 @@ export function CasaMap({
   }, []);
 
   return (
-    <div ref={wrap} className="relative h-full w-full overflow-hidden">
+    <div
+      ref={wrap}
+      className="relative h-full w-full overflow-hidden rounded-2xl bg-[radial-gradient(120%_90%_at_50%_20%,#151b26,#080a10_70%)]"
+      style={{ perspective: "2600px" }}
+    >
       <div
         className="absolute left-1/2 top-1/2"
         style={{
           width: WORLD_W,
           height: WORLD_H,
-          transform: `translate(-50%,-50%) scale(${scale})`,
+          transformStyle: "preserve-3d",
+          transform: `translate(-50%,-50%) scale(${scale}) rotateX(${ROT_X}deg) rotateZ(${-ROT_Z}deg)`,
         }}
       >
-        <div className="absolute -inset-6 rounded-[28px] bg-[#0d1017] shadow-[0_60px_120px_-40px_black]" />
-        <div className="absolute inset-0 rounded-2xl border-4 border-[#0b0e14] bg-[#191512] shadow-[0_0_160px_rgba(0,0,0,0.8)_inset]" />
+        {/* ground slab */}
+        <div
+          className="absolute rounded-[18px]"
+          style={{
+            left: -70,
+            top: -70,
+            width: WORLD_W + 140,
+            height: WORLD_H + 140,
+            transform: "translateZ(-18px)",
+            background: "linear-gradient(140deg,#1a1f2b,#0d1017)",
+            boxShadow: "0 0 200px 60px rgba(0,0,0,0.85)",
+          }}
+        />
 
         {ZONES.map((z) => {
           const here = myZone === z.id;
           return (
-            <button
-              key={z.id}
-              onClick={() => onZone?.(z.id)}
-              className={`group absolute overflow-hidden rounded-xl border text-left transition ${
-                here
-                  ? "border-primary/80 shadow-[0_0_0_2px_rgba(255,150,50,0.25),0_0_60px_-10px_rgba(255,150,50,0.7)_inset]"
-                  : "border-white/10 hover:border-primary/50"
-              }`}
-              style={{
-                left: z.x + 6,
-                top: z.y + 6,
-                width: z.w - 12,
-                height: z.h - 12,
-                background: z.floor,
-              }}
-            >
-              {/* warm interior light + wall shading */}
-              <span
-                className="pointer-events-none absolute inset-0"
+            <div key={z.id} style={{ transformStyle: "preserve-3d" }}>
+              {/* floor */}
+              <button
+                onClick={() => onZone?.(z.id)}
+                disabled={readOnly}
+                className="absolute overflow-hidden transition"
                 style={{
-                  backgroundImage:
-                    "radial-gradient(120% 90% at 50% -10%, rgba(255,178,92,0.16), transparent 62%), linear-gradient(180deg, rgba(255,255,255,0.05), transparent 30%), linear-gradient(0deg, rgba(0,0,0,0.45), transparent 45%)",
+                  left: z.x + 4,
+                  top: z.y + 4,
+                  width: z.w - 8,
+                  height: z.h - 8,
+                  background: `linear-gradient(150deg, color-mix(in oklab, ${z.floor} 82%, #ffb45c 18%), ${z.floor})`,
+                  boxShadow: here
+                    ? "inset 0 0 0 3px rgba(255,160,60,0.65), inset 0 0 120px rgba(255,170,80,0.35)"
+                    : "inset 0 0 0 2px rgba(0,0,0,0.55), inset 0 0 110px rgba(255,150,60,0.14)",
+                  cursor: readOnly ? "default" : "pointer",
                 }}
-              />
-              <span className="pointer-events-none absolute inset-0 opacity-0 transition group-hover:opacity-100 bg-[radial-gradient(90%_70%_at_50%_50%,rgba(255,160,60,0.14),transparent_70%)]" />
+              >
+                {/* tile pattern + warm pool of light */}
+                <span
+                  className="pointer-events-none absolute inset-0 opacity-40"
+                  style={{
+                    backgroundImage:
+                      "repeating-linear-gradient(0deg, rgba(255,255,255,0.05) 0 1px, transparent 1px 56px), repeating-linear-gradient(90deg, rgba(255,255,255,0.05) 0 1px, transparent 1px 56px)",
+                  }}
+                />
+                <span
+                  className="pointer-events-none absolute inset-0"
+                  style={{
+                    backgroundImage:
+                      "radial-gradient(70% 55% at 50% 45%, rgba(255,183,102,0.22), transparent 70%)",
+                  }}
+                />
+              </button>
 
-              {/* floating dark room label */}
-              <span className="pointer-events-none absolute left-3 top-3 flex items-center gap-2 rounded-lg border border-white/10 bg-black/70 px-3 py-1.5 backdrop-blur">
-                <span className="text-[20px] leading-none">{z.icon}</span>
-                <span className="leading-tight">
-                  <span className="block font-display text-[16px] uppercase tracking-[0.16em] text-white/90">
-                    {z.name}
+              {/* north wall */}
+              <Wall x={z.x} y={z.y} len={z.w} axis="x" />
+              {/* west wall */}
+              <Wall x={z.x} y={z.y} len={z.h} axis="y" />
+
+              {/* floating label */}
+              <div
+                className="pointer-events-none absolute z-30"
+                style={{
+                  left: z.x + z.w / 2,
+                  top: z.y + 26,
+                  transform: `translate(-50%,-50%) translateZ(${WALL + 34}px) ${BILLBOARD}`,
+                }}
+              >
+                <div className="flex items-center gap-2 whitespace-nowrap rounded-lg border border-white/12 bg-[#0b0e14]/85 px-3 py-1.5 shadow-[0_10px_26px_-10px_black] backdrop-blur">
+                  <span className="text-[18px] leading-none">{z.icon}</span>
+                  <span className="leading-tight">
+                    <span className="block font-display text-[14px] uppercase tracking-[0.18em] text-white/90">
+                      {z.name}
+                    </span>
+                    <span className="block font-display text-[9px] uppercase tracking-[0.22em] text-primary/70">
+                      {z.sub}
+                    </span>
                   </span>
-                  <span className="block font-display text-[10px] uppercase tracking-[0.2em] text-white/40">
-                    {z.sub}
-                  </span>
-                </span>
-              </span>
-            </button>
+                </div>
+              </div>
+            </div>
           );
         })}
 
-        <Props />
+        {/* furniture */}
+        {FURNITURE.map((p, i) => (
+          <div
+            key={i}
+            className="pointer-events-none absolute z-10"
+            style={{
+              left: p.x,
+              top: p.y,
+              fontSize: p.s ?? 26,
+              opacity: p.o ?? 0.75,
+              transform: `translate(-50%,-50%) translateZ(16px) ${BILLBOARD}`,
+              filter: "drop-shadow(0 6px 6px rgba(0,0,0,0.6))",
+            }}
+          >
+            {p.icon}
+          </div>
+        ))}
 
+        {/* clickable evidence props */}
         {OBJECTS.map((o) => {
           const explored = o.actions.every((a) => doneActions.includes(a.id));
           const hasEvidence = o.actions.some((a) => a.evidence && found.includes(a.evidence.id));
@@ -109,73 +244,99 @@ export function CasaMap({
           return (
             <button
               key={o.id}
+              disabled={readOnly}
               onClick={(e) => {
                 e.stopPropagation();
+                if (readOnly) return;
                 onZone?.(o.zone);
                 onSelect(o.id);
               }}
               title={o.name}
-              className={`group absolute -translate-x-1/2 -translate-y-1/2 rounded-xl border px-3 py-2 text-center transition hover:-translate-y-[calc(50%+3px)] ${
-                isSel
-                  ? "border-primary bg-primary/25 shadow-[0_0_28px_rgba(255,120,40,0.5)]"
-                  : hasEvidence
-                    ? "border-evidence/70 bg-evidence/15"
-                    : explored
-                      ? "border-white/15 bg-black/40"
-                      : "animate-pulse border-primary/50 bg-black/55 hover:border-primary hover:bg-primary/20"
-              }`}
-              style={{ left: o.x + 32, top: o.y + 32 }}
+              className="group absolute z-20"
+              style={{
+                left: o.x + 32,
+                top: o.y + 32,
+                transform: `translate(-50%,-50%) translateZ(26px) ${BILLBOARD}`,
+              }}
             >
-              <div className="text-[28px] leading-none drop-shadow-[0_4px_6px_rgba(0,0,0,0.7)]">
-                {o.icon}
-              </div>
-              <div className="mt-1 whitespace-nowrap font-display text-[11px] uppercase tracking-wider text-white/70 group-hover:text-primary">
-                {o.name}
-              </div>
-              {hasEvidence && (
-                <div className="absolute -right-2 -top-2 rounded-full bg-evidence px-1.5 text-[10px] font-bold text-black">
-                  ✓
-                </div>
-              )}
+              <span className="flex flex-col items-center">
+                <span
+                  className={`relative flex h-11 w-11 items-center justify-center rounded-xl border text-[24px] leading-none transition ${
+                    isSel
+                      ? "border-primary bg-primary/25 shadow-[0_0_30px_rgba(255,130,40,0.65)]"
+                      : hasEvidence
+                        ? "border-evidence/70 bg-evidence/15"
+                        : explored
+                          ? "border-white/12 bg-black/45"
+                          : "border-primary/35 bg-black/45 shadow-[0_0_18px_rgba(255,150,60,0.25)] group-hover:border-primary group-hover:bg-primary/20 group-hover:shadow-[0_0_30px_rgba(255,150,60,0.6)]"
+                  }`}
+                >
+                  {o.icon}
+                  {!explored && !isSel && (
+                    <span className="absolute -right-1 -top-1 h-2.5 w-2.5 animate-ping rounded-full bg-primary/80" />
+                  )}
+                  {hasEvidence && (
+                    <span className="absolute -right-2 -top-2 rounded-full bg-evidence px-1.5 text-[10px] font-bold text-black">
+                      ✓
+                    </span>
+                  )}
+                </span>
+                <span className="mt-1 whitespace-nowrap font-display text-[9px] uppercase tracking-[0.14em] text-white/45 opacity-0 transition group-hover:text-primary group-hover:opacity-100">
+                  {o.name}
+                </span>
+              </span>
             </button>
           );
         })}
 
-        {/* investigator pins */}
+        {/* investigator standees */}
         {avatars.map((a, idx) => {
           const z = ZONES.find((zz) => zz.id === a.zone) ?? ZONES[0]!;
           const peers = avatars.filter((p) => p.zone === a.zone);
           const slot = peers.findIndex((p) => p.id === a.id);
-          const cx = z.x + z.w / 2 + (slot - (peers.length - 1) / 2) * 96;
-          const cy = z.y + z.h - 78;
+          const cx = z.x + z.w / 2 + (slot - (peers.length - 1) / 2) * Math.min(110, z.w / 3);
+          const cy = z.y + z.h - 70;
           return (
             <div
               key={a.id}
-              className="pointer-events-none absolute z-20 -translate-x-1/2 -translate-y-1/2 transition-all duration-700 ease-out"
-              style={{ left: cx, top: cy, transitionDelay: `${idx * 20}ms` }}
+              className="pointer-events-none absolute z-40 transition-all duration-[900ms] ease-out"
+              style={{ left: cx, top: cy, transitionDelay: `${idx * 30}ms` }}
             >
-              <div className="flex flex-col items-center">
+              {/* ground shadow stays flat on the floor */}
+              <div
+                className="absolute -translate-x-1/2 -translate-y-1/2 rounded-[50%] bg-black/55 blur-[3px]"
+                style={{ width: 74, height: 34 }}
+              />
+              <div
+                className="absolute flex flex-col items-center"
+                style={{
+                  transform: `translate(-50%,-100%) translateZ(4px) ${BILLBOARD}`,
+                  transformOrigin: "bottom center",
+                }}
+              >
                 <div
-                  className={`overflow-hidden rounded-full border-[3px] bg-black/70 shadow-[0_10px_24px_-8px_black] ${
-                    a.isMe ? "h-[70px] w-[70px] animate-bounce" : "h-[54px] w-[54px]"
-                  }`}
-                  style={{ borderColor: a.isMe ? "var(--primary)" : a.inv.accent }}
-                >
-                  <img
-                    src={a.inv.portrait}
-                    alt={a.inv.name}
-                    loading="lazy"
-                    width={512}
-                    height={512}
-                    className="h-full w-full object-cover object-top"
-                  />
-                </div>
-                <div
-                  className="mt-1 whitespace-nowrap rounded-full border border-white/15 bg-black/80 px-2 py-0.5 font-display text-[11px] uppercase tracking-wider"
-                  style={{ color: a.isMe ? "var(--primary)" : a.inv.accent }}
+                  className="whitespace-nowrap rounded-full border px-2 py-0.5 font-display text-[10px] uppercase tracking-wider"
+                  style={{
+                    color: a.isMe ? "var(--primary)" : a.inv.accent,
+                    borderColor: a.isMe ? "var(--primary)" : a.inv.accent,
+                    background: "rgba(6,8,12,0.85)",
+                  }}
                 >
                   {a.inv.short}
                 </div>
+                <img
+                  src={a.inv.portrait}
+                  alt={a.inv.name}
+                  loading="lazy"
+                  width={768}
+                  height={1024}
+                  className={a.isMe ? "h-[132px] w-auto" : "h-[112px] w-auto"}
+                  style={{
+                    filter: `drop-shadow(0 10px 12px rgba(0,0,0,0.75)) drop-shadow(0 0 10px ${
+                      a.isMe ? "rgba(255,150,60,0.55)" : "transparent"
+                    })`,
+                  }}
+                />
               </div>
             </div>
           );
@@ -185,34 +346,25 @@ export function CasaMap({
   );
 }
 
-function Props() {
-  const tables = [
-    [400, 780],
-    [600, 780],
-    [800, 780],
-    [1000, 780],
-    [420, 560],
-    [1040, 620],
-  ];
+function Wall({ x, y, len, axis }: { x: number; y: number; len: number; axis: "x" | "y" }) {
+  const bg =
+    axis === "x"
+      ? "linear-gradient(180deg,#3b3229,#231c16)"
+      : "linear-gradient(180deg,#2f271f,#1a1510)";
   return (
-    <>
-      {tables.map(([x, y]) => (
-        <div
-          key={`${x}-${y}`}
-          className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 text-[26px] opacity-40"
-          style={{ left: x, top: y }}
-        >
-          🪑
-        </div>
-      ))}
-      <div className="pointer-events-none absolute left-[1240px] top-[540px] text-[26px] opacity-40">🍾</div>
-      <div className="pointer-events-none absolute left-[1240px] top-[800px] text-[26px] opacity-40">🥃</div>
-      <div className="pointer-events-none absolute left-[900px] top-[380px] text-[26px] opacity-40">🍲</div>
-      <div className="pointer-events-none absolute left-[1420px] top-[380px] text-[26px] opacity-40">🧂</div>
-      <div className="pointer-events-none absolute left-[180px] top-[820px] text-[26px] opacity-40">🪴</div>
-      <div className="pointer-events-none absolute left-[1150px] top-[180px] text-[26px] opacity-40">🥬</div>
-      <div className="pointer-events-none absolute left-[1480px] top-[180px] text-[26px] opacity-40">🧁</div>
-      <div className="pointer-events-none absolute left-[250px] top-[120px] text-[26px] opacity-40">🗄️</div>
-    </>
+    <div
+      className="pointer-events-none absolute"
+      style={{
+        left: x,
+        top: y,
+        width: len,
+        height: WALL,
+        background: bg,
+        borderTop: "2px solid rgba(255,190,120,0.18)",
+        transformOrigin: "top left",
+        transform: axis === "x" ? "rotateX(-90deg)" : "rotateZ(90deg) rotateX(-90deg)",
+        boxShadow: "0 2px 14px rgba(0,0,0,0.55)",
+      }}
+    />
   );
 }
