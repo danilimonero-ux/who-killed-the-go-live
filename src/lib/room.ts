@@ -21,6 +21,14 @@ export type Player = {
   is_host: boolean;
   power_used: boolean;
   created_at: string;
+  score: number;
+  attempts_used: number;
+  status: string;
+  evidence_count: number;
+  solved_at: string | null;
+  finish_seconds: number | null;
+  decision: string | null;
+  red_herrings: number;
 };
 
 export type Vote = {
