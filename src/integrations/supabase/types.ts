@@ -76,31 +76,55 @@ export type Database = {
       }
       players: {
         Row: {
+          attempts_used: number
           created_at: string
+          decision: string | null
+          evidence_count: number
+          finish_seconds: number | null
           id: string
           is_host: boolean
           name: string
           power_used: boolean
+          red_herrings: number
           role: string | null
           room_id: string
+          score: number
+          solved_at: string | null
+          status: string
         }
         Insert: {
+          attempts_used?: number
           created_at?: string
+          decision?: string | null
+          evidence_count?: number
+          finish_seconds?: number | null
           id?: string
           is_host?: boolean
           name: string
           power_used?: boolean
+          red_herrings?: number
           role?: string | null
           room_id: string
+          score?: number
+          solved_at?: string | null
+          status?: string
         }
         Update: {
+          attempts_used?: number
           created_at?: string
+          decision?: string | null
+          evidence_count?: number
+          finish_seconds?: number | null
           id?: string
           is_host?: boolean
           name?: string
           power_used?: boolean
+          red_herrings?: number
           role?: string | null
           room_id?: string
+          score?: number
+          solved_at?: string | null
+          status?: string
         }
         Relationships: [
           {
@@ -122,6 +146,7 @@ export type Database = {
           phase: string
           revealed: Json
           round: number
+          started_at: string | null
           timer_ends_at: string | null
           verdict: string | null
         }
@@ -134,6 +159,7 @@ export type Database = {
           phase?: string
           revealed?: Json
           round?: number
+          started_at?: string | null
           timer_ends_at?: string | null
           verdict?: string | null
         }
@@ -146,6 +172,7 @@ export type Database = {
           phase?: string
           revealed?: Json
           round?: number
+          started_at?: string | null
           timer_ends_at?: string | null
           verdict?: string | null
         }
