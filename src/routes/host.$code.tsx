@@ -194,7 +194,7 @@ function Leaderboard({ players }: { players: Player[] }) {
   );
 }
 
-function Award({ title, who }: { title: string; who?: string }) {
+function Award({ title, who }: { title: string; who?: string | undefined }) {
   return (
     <div className="rounded-md border border-border p-4">
       <div className="label-caps">{title}</div>
