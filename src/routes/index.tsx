@@ -1,23 +1,23 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { newRoomCode, ROLES } from "@/lib/game";
+import { newRoomCode } from "@/lib/game";
 import { storePlayerId } from "@/lib/room";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Who Killed the Go-Live? — K-Series Launch Mystery" },
+      { title: "Who Killed the Go-Live? — Casa Fuego Investigation Game" },
       {
         name: "description",
         content:
-          "A 8–10 minute multiplayer murder mystery for launch teams. Investigate the Casa Fuego Madrid go-live, classify the evidence and deliver the verdict together.",
+          "A 10-minute competitive detective game for launch teams. Investigate the Casa Fuego Madrid go-live failure, collect evidence and accuse before your colleagues do.",
       },
-      { property: "og:title", content: "Who Killed the Go-Live?" },
+      { property: "og:title", content: "Who Killed the Go-Live? — Casa Fuego" },
       {
         property: "og:description",
         content:
-          "A live 8–10 minute Cluedo-style investigation for K-Series launch teams. Create a room, share the code, find the killer.",
+          "Six implementers, one incident, three attempts each. Explore Casa Fuego, collect evidence, save the go-live.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -31,7 +31,6 @@ function Landing() {
   const [mode, setMode] = useState<"none" | "join">("none");
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
-  const [role, setRole] = useState(ROLES[0]!.id);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,19 +38,15 @@ function Landing() {
     setBusy(true);
     setError(null);
     const roomCode = newRoomCode();
-    const { data: room, error: e1 } = await supabase
-      .from("rooms")
-      .insert({ code: roomCode })
-      .select()
-      .single();
-    if (e1 || !room) {
+    const { data: room } = await supabase.from("rooms").insert({ code: roomCode }).select().single();
+    if (!room) {
       setError("Could not open the case file. Try again.");
       setBusy(false);
       return;
     }
     const { data: host } = await supabase
       .from("players")
-      .insert({ room_id: room.id, name: "Game Master", is_host: true })
+      .insert({ room_id: room.id, name: "Game Master", is_host: true, status: "host" })
       .select()
       .single();
     if (host) storePlayerId(roomCode, host.id);
@@ -63,11 +58,7 @@ function Landing() {
     setBusy(true);
     setError(null);
     const c = code.trim().toUpperCase();
-    const { data: room } = await supabase
-      .from("rooms")
-      .select("id")
-      .eq("code", c)
-      .maybeSingle();
+    const { data: room } = await supabase.from("rooms").select("id").eq("code", c).maybeSingle();
     if (!room) {
       setError("No investigation found with that code.");
       setBusy(false);
@@ -75,7 +66,7 @@ function Landing() {
     }
     const { data: player } = await supabase
       .from("players")
-      .insert({ room_id: room.id, name: name.trim() || "Detective", role })
+      .insert({ room_id: room.id, name: name.trim() || "Detective", status: "lobby" })
       .select()
       .single();
     if (!player) {
@@ -91,9 +82,9 @@ function Landing() {
     <main className="noir-grain relative mx-auto flex min-h-screen max-w-6xl flex-col justify-center px-5 py-12">
       <div className="flex flex-wrap items-center gap-3">
         <span className="tape px-3 py-1 font-display text-xs font-semibold uppercase tracking-[0.2em]">
-          8–10 min
+          10 min
         </span>
-        <span className="label-caps">K-Series · Launch Forensics · Casa Fuego Madrid</span>
+        <span className="label-caps">K-Series · Casa Fuego Madrid · 19:07</span>
       </div>
 
       <h1 className="mt-6 max-w-4xl font-display text-5xl uppercase leading-[0.95] tracking-tight md:text-7xl lg:text-8xl">
@@ -101,9 +92,9 @@ function Landing() {
         <span className="block text-primary">go-live?</span>
       </h1>
       <p className="mt-5 max-w-2xl text-base leading-relaxed text-muted-foreground md:text-lg">
-        The launch was scheduled for tomorrow at 10:00. At 18:42 it was found dead. Assemble your
-        detectives, interrogate eight suspects, classify the evidence and deliver a verdict before
-        the private event begins.
+        23 minutes before a private event, the first real order goes in. Beer prints. Burrata prints.
+        The ribeye never arrives. Everyone investigates the same crime scene — alone. Highest score
+        wins.
       </p>
 
       <div className="mt-10 grid gap-4 md:grid-cols-2">
@@ -111,8 +102,8 @@ function Landing() {
           <div className="label-caps">Game Master</div>
           <h2 className="mt-1 font-display text-2xl uppercase">Create investigation</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            Opens a case file with a 6-character room code. Share your screen — you control the
-            reveals, the timer and the confidence meter.
+            Opens a room with a 6-character code. Share your screen, press start, the game runs
+            itself.
           </p>
           <button
             onClick={createRoom}
@@ -124,12 +115,13 @@ function Landing() {
         </div>
 
         <div className="panel noir-grain p-6">
-          <div className="label-caps">Detective</div>
+          <div className="label-caps">Implementer</div>
           <h2 className="mt-1 font-display text-2xl uppercase">Join investigation</h2>
           {mode === "none" ? (
             <>
               <p className="mt-2 text-sm text-muted-foreground">
-                Enter the room code your Game Master is showing and pick your speciality.
+                Enter the room code your Game Master is showing. No roles, no logins — everyone gets
+                the same tools.
               </p>
               <button
                 onClick={() => setMode("join")}
@@ -155,22 +147,6 @@ function Landing() {
                 required
                 className="w-full rounded-md border border-input bg-background/60 px-4 py-3 outline-none focus:border-primary"
               />
-              <div className="grid gap-2 sm:grid-cols-2">
-                {ROLES.map((r) => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => setRole(r.id)}
-                    className={`rounded-md border px-3 py-2 text-left text-sm transition ${
-                      role === r.id
-                        ? "border-primary bg-primary/10 text-foreground"
-                        : "border-border text-muted-foreground hover:border-primary/50"
-                    }`}
-                  >
-                    <span className="font-display uppercase tracking-wide">{r.name}</span>
-                  </button>
-                ))}
-              </div>
               <button
                 disabled={busy}
                 className="w-full rounded-md bg-primary px-5 py-3 font-display text-lg uppercase tracking-wider text-primary-foreground transition hover:brightness-110 disabled:opacity-60"
@@ -186,9 +162,9 @@ function Landing() {
 
       <div className="mt-12 grid gap-5 border-t border-border pt-8 md:grid-cols-3">
         {[
-          ["01 · Brief", "The Game Master shares the screen and reads the case. Everyone joins with a role."],
-          ["02 · Investigate", "Four rounds. Vote a suspect, see the evidence, classify it: blocker, workaround, out of scope or noise."],
-          ["03 · Verdict", "The confidence meter decides: GO, Conditional Go, High Risk or No-Go. Then the killer is revealed."],
+          ["🔎 Investigate", "Explore Casa Fuego. Click glowing objects and collect evidence."],
+          ["🧠 Connect", "Work out what failed, where, who killed the go-live and how."],
+          ["🚨 Accuse", "Three attempts. Three mistakes and you're fired."],
         ].map(([t, d]) => (
           <div key={t}>
             <div className="font-display text-sm uppercase tracking-[0.2em] text-primary">{t}</div>

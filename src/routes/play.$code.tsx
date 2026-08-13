@@ -1,41 +1,39 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { readPlayerId, storePlayerId, useCountdown, useRoom } from "@/lib/room";
+import { usePrivateCase } from "@/lib/play-state";
 import {
-  BRIEFING_LINE,
-  CASE_FACTS,
-  CLOSING_LINE,
-  INITIAL_OPTIONS,
-  PHASE_LABEL,
-  PHASE_SECONDS,
-  ROLES,
-  SUSPECTS,
-  roleById,
-  type Phase,
-} from "@/lib/game";
-import { castVote, readPlayerId, storePlayerId, tally, useRoom } from "@/lib/room";
-import { useDiscoveries, recordDiscovery } from "@/lib/discoveries";
-import { TOTAL_STEPS, objectById } from "@/lib/map";
-import { MapCanvas } from "@/components/game/map/MapCanvas";
-import { InspectPanel } from "@/components/game/map/InspectPanel";
-import { DiscoveryFeed } from "@/components/game/map/DiscoveryFeed";
-import { EvidenceBoard } from "@/components/game/map/EvidenceBoard";
-import { Timer } from "@/components/game/Timer";
-import { ConfidenceMeter } from "@/components/game/ConfidenceMeter";
+  ALL_EVIDENCE,
+  ESCALATION_ORDER,
+  GAME_SECONDS,
+  OPENING_ORDER,
+  SOCRATIC,
+  isCorrect,
+  objectById,
+  scoreRun,
+  type Accusation,
+  type Action,
+} from "@/lib/case";
+import { CasaMap } from "@/components/casa/CasaMap";
+import { InspectCard } from "@/components/casa/InspectCard";
+import { EvidenceBoardPanel } from "@/components/casa/EvidenceBoardPanel";
+import { AccuseWizard } from "@/components/casa/AccuseWizard";
+import { Debrief } from "@/components/casa/Debrief";
 
 export const Route = createFileRoute("/play/$code")({
   head: () => ({
     meta: [
-      { title: "Detective Screen — Who Killed the Go-Live?" },
+      { title: "Detective Console — Who Killed the Go-Live?" },
       {
         name: "description",
         content:
-          "Your detective console for the Casa Fuego Madrid launch investigation: vote on suspects, classify evidence and use your one-time power.",
+          "Your private Casa Fuego investigation: explore the restaurant, collect evidence and accuse before the timer runs out.",
       },
-      { property: "og:title", content: "Detective Screen — Who Killed the Go-Live?" },
+      { property: "og:title", content: "Detective Console — Casa Fuego" },
       {
         property: "og:description",
-        content: "Vote on suspects, classify the evidence and cast the final verdict.",
+        content: "Explore, collect evidence, accuse. Three attempts. Save the go-live.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -46,24 +44,50 @@ export const Route = createFileRoute("/play/$code")({
 
 function PlayerScreen() {
   const { code } = Route.useParams();
-  const { room, players, votes, loading, missing } = useRoom(code);
+  const { room, players, loading, missing } = useRoom(code);
   const [playerId, setPlayerId] = useState<string | null>(null);
-  const [showClue, setShowClue] = useState(false);
+  const [entered, setEntered] = useState(false);
+  const [story, setStory] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
-  const [near, setNear] = useState<string | null>(null);
-  const [zone, setZone] = useState<string | null>(null);
   const [board, setBoard] = useState(false);
-  const [hud, setHud] = useState(true);
-  const { discoveries, found } = useDiscoveries(room?.id);
+  const [accusing, setAccusing] = useState(false);
+  const [result, setResult] = useState<"wrong" | "saved" | null>(null);
+  const [resetAsk, setResetAsk] = useState(false);
+  const [alertOn, setAlertOn] = useState(false);
+  const { state, record, reset, escalate } = usePrivateCase(code, playerId);
+  const left = useCountdown(room?.timer_ends_at ?? null);
 
-  useEffect(() => {
-    setPlayerId(readPlayerId(code));
-  }, [code]);
-
-  if (loading) return <Shell>Connecting to the crime scene…</Shell>;
-  if (missing || !room) return <Shell>No investigation found for code {code}.</Shell>;
+  useEffect(() => setPlayerId(readPlayerId(code)), [code]);
 
   const me = players.find((p) => p.id === playerId) ?? null;
+  const running = room?.phase === "running";
+
+  // mid-game escalation
+  useEffect(() => {
+    if (!running || state.escalated) return;
+    if ((left !== null && left <= 150) || state.found.length >= 6) {
+      escalate();
+      setAlertOn(true);
+    }
+  }, [running, left, state.escalated, state.found.length, escalate]);
+
+  // time out
+  useEffect(() => {
+    if (!me || !running || left === null || left > 0) return;
+    if (me.status === "investigating" || me.status === "lobby") {
+      void supabase.from("players").update({ status: "timeout" }).eq("id", me.id);
+    }
+  }, [left, me, running]);
+
+  // keep evidence count in sync (only a number, never the content)
+  useEffect(() => {
+    if (!me || me.status !== "investigating") return;
+    if (me.evidence_count === state.found.length) return;
+    void supabase.from("players").update({ evidence_count: state.found.length }).eq("id", me.id);
+  }, [state.found.length, me]);
+
+  if (loading) return <Shell>Connecting to Casa Fuego…</Shell>;
+  if (missing || !room) return <Shell>No investigation found for code {code}.</Shell>;
   if (!me)
     return (
       <LateJoin
@@ -76,281 +100,486 @@ function PlayerScreen() {
       />
     );
 
-  const phase = room.phase as Phase;
-  const role = roleById(me.role);
+  const attemptsLeft = 3 - me.attempts_used;
+  const confidence = state.escalated ? 45 : 70;
+  const solvedCount = players.filter((p) => p.status === "saved").length;
   const detectives = players.filter((p) => !p.is_host);
-  const myVote = (kind: string, round: number) =>
-    votes.find((v) => v.player_id === me.id && v.kind === kind && v.round === round)?.value ?? null;
 
-  const onMap = phase === "investigate" || phase === "connect";
-
-  const runStep = async (objectId: string, step: number) => {
-    await recordDiscovery(room.id, objectId, step, { id: me.id, name: me.name });
+  const runAction = (a: Action) => {
+    if (state.done.includes(a.id)) return;
+    record(a.id, a.evidence?.id);
   };
 
-  const usePower = async () => {
-    setShowClue(true);
-    if (!me.power_used) await supabase.from("players").update({ power_used: true }).eq("id", me.id);
+  const submit = async (a: Accusation) => {
+    const ok = isCorrect(a);
+    const attempts = me.attempts_used + 1;
+    const secondsLeft = left ?? 0;
+    if (ok) {
+      const score = scoreRun({
+        a,
+        foundIds: state.found,
+        secondsLeft,
+        wrongAttempts: attempts - 1,
+        interactions: state.interactions,
+      });
+      await supabase
+        .from("players")
+        .update({
+          attempts_used: attempts,
+          status: "saved",
+          score,
+          decision: a.decision,
+          solved_at: new Date().toISOString(),
+          finish_seconds: GAME_SECONDS - secondsLeft,
+          evidence_count: state.found.length,
+          red_herrings: state.found.filter((id) =>
+            ALL_EVIDENCE.some((e) => e.id === id && e.kind === "herring"),
+          ).length,
+        })
+        .eq("id", me.id);
+      setAccusing(false);
+      setResult("saved");
+      return;
+    }
+    const fired = attempts >= 3;
+    await supabase
+      .from("players")
+      .update({
+        attempts_used: attempts,
+        status: fired ? "fired" : "investigating",
+        score: Math.max(0, me.score - 150),
+        evidence_count: state.found.length,
+      })
+      .eq("id", me.id);
+    setAccusing(false);
+    setResult("wrong");
   };
 
-  if (onMap)
+  /* ── screens ─────────────────────────────────────────────── */
+
+  if (room.phase === "ended" || (me.status === "timeout" && !running))
+    return <EndScreen players={detectives} />;
+
+  if (!entered) return <RulesScreen onEnter={() => setEntered(true)} started={running} />;
+
+  if (!running)
     return (
-      <main className="fixed inset-0 flex flex-col overflow-hidden bg-background">
-        {/* slim HUD */}
-        <header className="z-30 flex shrink-0 items-center gap-4 border-b border-border/70 bg-black/50 px-4 py-2 backdrop-blur">
-          <div className="min-w-0">
-            <div className="label-caps text-[10px]">{room.code} · Casa Fuego Madrid</div>
-            <div className="font-display text-lg uppercase leading-none">{PHASE_LABEL[phase]}</div>
-          </div>
-          <div className="hidden min-w-0 md:block">
-            <div className="label-caps text-[10px]">{me.name}</div>
-            <div className="font-display text-base uppercase leading-none text-primary">
-              {role?.name ?? "Observer"}
-            </div>
-          </div>
-          <div className="mx-auto hidden w-64 md:block">
-            <ConfidenceMeter value={room.confidence} compact />
-          </div>
-          <button
-            onClick={() => void usePower()}
-            disabled={!role || (me.power_used && showClue)}
-            className={`rounded-md px-3 py-1.5 font-display text-xs uppercase tracking-wider transition ${
-              me.power_used
-                ? "border border-border text-muted-foreground"
-                : "bg-primary text-primary-foreground hover:brightness-110"
-            }`}
-          >
-            {me.power_used ? "Power used" : role?.power ?? "No power"}
-          </button>
-          <div className="w-24 shrink-0">
-            <Timer endsAt={room.timer_ends_at} total={PHASE_SECONDS[phase] ?? 60} />
-          </div>
-        </header>
-
-        {/* map stage */}
-        <div className="relative min-h-0 flex-1">
-          <MapCanvas
-            roomId={room.id}
-            self={{ id: me.id, name: me.name, role: me.role }}
-            found={found}
-            selectedId={selected}
-            onSelect={setSelected}
-            onNearChange={setNear}
-            onZoneChange={setZone}
-            frozen={board}
-            fit
-          />
-
-          {showClue && role && (
-            <div className="pointer-events-none absolute left-3 top-3 z-30 max-w-sm rounded-md border border-evidence/40 bg-black/80 p-3 font-mono text-xs leading-relaxed text-evidence backdrop-blur">
-              {role.clue}
-            </div>
-          )}
-
-          {/* floating discovery HUD */}
-          <div className="absolute right-3 top-3 z-30 w-[260px] max-w-[38vw]">
-            <button
-              onClick={() => setHud((h) => !h)}
-              className="mb-2 w-full rounded-md border border-border bg-black/70 px-3 py-1.5 font-display text-xs uppercase tracking-wider backdrop-blur hover:border-primary hover:text-primary"
-            >
-              {hud ? "Hide HUD" : `Show HUD · ${discoveries.length}/${TOTAL_STEPS}`}
-            </button>
-            {hud && (
-              <>
-                <div className="rounded-lg bg-black/70 backdrop-blur">
-                  <DiscoveryFeed discoveries={discoveries} total={TOTAL_STEPS} compact />
-                </div>
-                <button
-                  onClick={() => setBoard(true)}
-                  className="mt-2 w-full rounded-md border border-border bg-black/70 px-3 py-2 font-display text-sm uppercase tracking-wider backdrop-blur hover:border-primary hover:text-primary"
-                >
-                  Evidence board
-                </button>
-              </>
-            )}
-
-            {phase === "connect" && (
-              <div className="panel mt-2 bg-black/70 p-3 backdrop-blur">
-                <div className="label-caps text-[10px]">Name the primary cause</div>
-                <div className="mt-2 grid gap-1.5">
-                  {SUSPECTS.map((sp) => (
-                    <button
-                      key={sp.id}
-                      onClick={() => void castVote(room.id, me.id, "suspect", 1, sp.id)}
-                      className={`rounded-md border px-2.5 py-1.5 text-left font-display text-xs uppercase tracking-wide transition ${
-                        myVote("suspect", 1) === sp.id
-                          ? "border-primary bg-primary/15 text-primary"
-                          : "border-border hover:border-primary/60"
-                      }`}
-                    >
-                      {sp.name}
-                      <span className="ml-2 text-[10px] text-muted-foreground">
-                        {tally(votes, "suspect", 1)[sp.id] ?? 0}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {selected && (
-            <InspectPanel
-              objectId={selected}
-              found={found}
-              role={me.role}
-              near={near === selected || objectById(selected)?.zone === zone}
-              onClose={() => setSelected(null)}
-              onRun={runStep}
-            />
-          )}
-          {board && <EvidenceBoard discoveries={discoveries} onClose={() => setBoard(false)} />}
-        </div>
-      </main>
+      <Shell>
+        <span className="block">You're in. Waiting for the Game Master to start.</span>
+        <span className="mt-3 block text-lg text-muted-foreground">
+          {detectives.length} implementer{detectives.length === 1 ? "" : "s"} on the scene.
+        </span>
+      </Shell>
     );
 
+  if (me.status === "lobby") {
+    void supabase.from("players").update({ status: "investigating" }).eq("id", me.id);
+  }
+
+  if (me.status === "saved" && result !== null)
+    return (
+      <SuccessScreen
+        score={me.score}
+        seconds={me.finish_seconds ?? 0}
+        attempts={me.attempts_used}
+        evidence={state.found.length}
+        decision={me.decision ?? "conditional"}
+        solvedCount={solvedCount}
+        total={detectives.length}
+      />
+    );
+
+  if (me.status === "saved")
+    return (
+      <SuccessScreen
+        score={me.score}
+        seconds={me.finish_seconds ?? 0}
+        attempts={me.attempts_used}
+        evidence={state.found.length}
+        decision={me.decision ?? "conditional"}
+        solvedCount={solvedCount}
+        total={detectives.length}
+      />
+    );
+
+  if (me.status === "fired") return <FiredScreen solvedCount={solvedCount} total={detectives.length} />;
+
+  if (story)
+    return <OpeningStory onDone={() => setStory(false)} />;
+
   return (
-    <main className="noir-grain mx-auto max-w-3xl px-4 py-5">
-
-      <header className="flex items-start justify-between gap-4">
-        <div>
-          <div className="label-caps">{room.code} · Casa Fuego Madrid</div>
-          <h1 className="font-display text-2xl uppercase leading-none md:text-3xl">
-            {PHASE_LABEL[phase]}
-
-          </h1>
+    <main className="fixed inset-0 flex flex-col overflow-hidden bg-background">
+      <header className="z-30 flex shrink-0 flex-wrap items-center gap-3 border-b border-border/70 bg-black/60 px-4 py-2 backdrop-blur">
+        <div className="min-w-0">
+          <div className="label-caps text-[10px]">{room.code} · Casa Fuego</div>
+          <div className="font-display text-lg uppercase leading-none">{me.name}</div>
         </div>
-        <div className="w-32 shrink-0">
-          <Timer endsAt={room.timer_ends_at} total={PHASE_SECONDS[phase] ?? 60} />
+        <div className="font-display text-3xl tabular-nums leading-none">
+          ⏱ {fmt(left)}
+        </div>
+        <div className="font-display text-xl leading-none">
+          {"❤️".repeat(attemptsLeft)}
+          {"🖤".repeat(3 - attemptsLeft)}
+        </div>
+        <div className="label-caps text-[11px]">🔎 Evidence {state.found.length}</div>
+        <div className="label-caps text-[11px]">🏅 {me.score}</div>
+        <div className="flex items-center gap-2">
+          <span className="label-caps text-[11px]">Go-live confidence</span>
+          <div className="h-2 w-28 overflow-hidden rounded-full bg-muted">
+            <div
+              className={`h-full ${confidence >= 60 ? "bg-warn" : "bg-nogo"}`}
+              style={{ width: `${confidence}%` }}
+            />
+          </div>
+          <span className="font-display text-sm">{confidence}%</span>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <span className="label-caps text-[11px] text-go">
+            🟢 {solvedCount}/{detectives.length} saved
+          </span>
+          <button
+            onClick={() => setBoard(true)}
+            className="rounded-md border border-border px-3 py-1.5 font-display text-xs uppercase hover:border-primary hover:text-primary"
+          >
+            🗂️ Evidence board
+          </button>
+          <button
+            onClick={() => setAccusing(true)}
+            className="rounded-md bg-destructive px-4 py-1.5 font-display text-xs uppercase tracking-wider text-destructive-foreground hover:brightness-110"
+          >
+            🚨 Save the go-live
+          </button>
+          <button
+            onClick={() => setResetAsk(true)}
+            title="Reset investigation"
+            className="rounded-md border border-border px-2.5 py-1.5 text-xs hover:border-primary"
+          >
+            ⚙️
+          </button>
         </div>
       </header>
 
-      <div className="panel mt-4 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <div className="label-caps">{me.name}</div>
-            <div className="font-display text-xl uppercase text-primary">
-              {role?.name ?? "Observer"}
-            </div>
-          </div>
-          <button
-            onClick={() => void usePower()}
-            disabled={!role || (me.power_used && showClue)}
-            className={`rounded-md px-4 py-2 font-display text-sm uppercase tracking-wider transition ${
-              me.power_used
-                ? "border border-border text-muted-foreground"
-                : "bg-primary text-primary-foreground hover:brightness-110"
-            }`}
-          >
-            {me.power_used ? "Power used" : role?.power ?? "No power"}
-          </button>
+      <div className="relative min-h-0 flex-1">
+        <CasaMap
+          found={state.found}
+          doneActions={state.done}
+          selected={selected}
+          onSelect={setSelected}
+        />
+        <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-border/70 bg-black/70 px-4 py-1.5 text-xs text-muted-foreground backdrop-blur">
+          Click any glowing object · 🔎 Inspect · 📡 Ping · 🔗 Trace · 🧪 Test · 👤 Ask
         </div>
-        {role && <p className="mt-2 text-sm text-muted-foreground">{role.brief}</p>}
-        {showClue && role && (
-          <p className="mt-3 rounded-md border border-evidence/40 bg-evidence/5 p-3 font-mono text-sm leading-relaxed text-evidence">
-            {role.clue}
-          </p>
-        )}
       </div>
 
-      <div className="panel mt-4 p-4">
-        <ConfidenceMeter value={room.confidence} compact />
-      </div>
-
-      {phase === "lobby" && (
-        <Card title="Waiting for the Game Master">
-          <p className="text-muted-foreground">
-            {detectives.length} detective{detectives.length === 1 ? "" : "s"} on the scene. The
-            briefing starts shortly.
-          </p>
-        </Card>
+      {selected && objectById(selected) && (
+        <InspectCard
+          objectId={selected}
+          done={state.done}
+          found={state.found}
+          onRun={runAction}
+          onClose={() => setSelected(null)}
+        />
       )}
-
-      {phase === "briefing" && (
-        <Card title="Crime scene">
-          <p className="font-display text-xl uppercase leading-tight text-primary">{BRIEFING_LINE}</p>
-          <ul className="mt-4 space-y-2 text-sm text-foreground/90">
-            {CASE_FACTS.map((f) => (
-              <li key={f} className="flex gap-2">
-                <span className="text-primary">—</span>
-                <span>{f}</span>
-              </li>
-            ))}
-          </ul>
-        </Card>
+      {board && <EvidenceBoardPanel found={state.found} onClose={() => setBoard(false)} />}
+      {accusing && (
+        <AccuseWizard
+          attemptsLeft={attemptsLeft}
+          onCancel={() => setAccusing(false)}
+          onSubmit={(a) => void submit(a)}
+        />
       )}
-
-      {phase === "initial" && (
-        <Card title="First instinct — no evidence yet">
-          <Options
-            options={[...INITIAL_OPTIONS]}
-            selected={myVote("initial", 0)}
-            onSelect={(v) => void castVote(room.id, me.id, "initial", 0, v)}
-          />
-        </Card>
+      {result === "wrong" && (
+        <WrongScreen attemptsLeft={3 - me.attempts_used} onBack={() => setResult(null)} />
       )}
-
-      {phase === "verdict" && (
-        <Card title="Your final verdict">
-          <Options
-            options={[...INITIAL_OPTIONS]}
-            selected={myVote("verdict", 0)}
-            onSelect={(v) => void castVote(room.id, me.id, "verdict", 0, v)}
-          />
-        </Card>
-      )}
-
-      {phase === "reveal" && (
-        <Card title="Case closed">
-          <p className="font-display text-3xl uppercase leading-tight">
-            The killer was <span className="text-primary">Partner Assumption.</span>
+      {alertOn && <EscalationAlert onClose={() => setAlertOn(false)} />}
+      {resetAsk && (
+        <Modal>
+          <h2 className="font-display text-2xl uppercase">Reset investigation?</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            This clears your discovered evidence, your evidence board, opened rooms and performed
+            tests. It does NOT restore used attempts, does not reset the shared timer and does not
+            affect anyone else.
           </p>
-          <p className="mt-3 font-display text-xl uppercase text-evidence">
-            The weapon was a checklist with no evidence.
-          </p>
-          <p className="mt-6 font-display text-2xl uppercase tracking-[0.12em]">
-            No evidence, no go-live.
-          </p>
-          <p className="mt-4 text-base text-foreground/85">{CLOSING_LINE}</p>
-        </Card>
+          <div className="mt-4 flex gap-3">
+            <button
+              onClick={() => setResetAsk(false)}
+              className="rounded-md border border-border px-4 py-2 font-display uppercase"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                reset();
+                setResetAsk(false);
+                setSelected(null);
+              }}
+              className="rounded-md bg-primary px-5 py-2 font-display uppercase text-primary-foreground"
+            >
+              Reset
+            </button>
+          </div>
+        </Modal>
       )}
     </main>
   );
 }
 
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
+/* ── sub-screens ───────────────────────────────────────────── */
+
+function RulesScreen({ onEnter, started }: { onEnter: () => void; started: boolean }) {
   return (
-    <section className="panel mt-4 p-4 md:p-5">
-      <div className="label-caps">{title}</div>
-      <div className="mt-3">{children}</div>
-    </section>
+    <main className="noir-grain mx-auto flex min-h-screen max-w-3xl flex-col justify-center px-5 py-10">
+      <h1 className="font-display text-5xl uppercase leading-none text-primary">🔥 Save the go-live</h1>
+      <div className="mt-6 space-y-3">
+        {[
+          ["1 🔎", "INVESTIGATE", "Explore Casa Fuego. Click glowing objects and collect evidence."],
+          ["2 🧠", "CONNECT", "Work out WHAT failed, WHERE, WHO killed the go-live and HOW."],
+          ["3 🚨", "ACCUSE", "Submit your theory when ready."],
+        ].map(([n, t, d]) => (
+          <div key={t} className="panel flex items-center gap-4 p-4">
+            <div className="font-display text-3xl">{n}</div>
+            <div>
+              <div className="font-display text-2xl uppercase leading-none">{t}</div>
+              <p className="mt-1 text-sm text-muted-foreground">{d}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="mt-6 font-display text-3xl uppercase">
+        ❤️❤️❤️ You have 3 attempts. Three wrong accusations = you're fired.
+      </p>
+      <p className="mt-2 font-display text-2xl uppercase text-evidence">
+        🏆 Highest score wins. Speed matters, but proof matters more.
+      </p>
+      <p className="mt-3 text-sm text-muted-foreground">
+        🔄 Reset clears your investigation, NOT your used attempts.
+      </p>
+      <button
+        onClick={onEnter}
+        className="mt-7 rounded-md bg-primary px-6 py-4 font-display text-2xl uppercase tracking-wider text-primary-foreground hover:brightness-110"
+      >
+        Enter Casa Fuego
+      </button>
+      {!started && (
+        <p className="mt-3 text-sm text-muted-foreground">
+          The Game Master hasn't started yet — you can read this twice.
+        </p>
+      )}
+    </main>
   );
 }
 
-function Options({
-  options,
-  selected,
-  onSelect,
+function OpeningStory({ onDone }: { onDone: () => void }) {
+  return (
+    <main className="noir-grain mx-auto flex min-h-screen max-w-3xl flex-col justify-center px-5 py-10">
+      <div className="label-caps">Casa Fuego Madrid · 19:07 · 23 minutes to the private event</div>
+      <h1 className="mt-2 font-display text-4xl uppercase leading-none md:text-5xl">
+        New partner. Checklist says <span className="text-go">ready</span>.
+      </h1>
+      <div className="panel mt-5 p-4">
+        <div className="label-caps">First real test order</div>
+        <ul className="mt-3 space-y-2 font-display text-xl uppercase">
+          {OPENING_ORDER.map((o) => (
+            <li key={o.item} className="flex items-center gap-3">
+              <span className="text-2xl">{o.icon}</span>
+              <span className="w-40">{o.item}</span>
+              <span className="text-muted-foreground">→ {o.to}</span>
+              <span className={o.ok ? "text-go" : "text-nogo"}>{o.ok ? "✅" : "❌"}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <p className="mt-4 rounded-md border border-border bg-black/30 p-4 font-mono text-sm text-foreground/85">
+        PARTNER: “All printers were tested yesterday. Everything was green. We followed the
+        checklist.”
+      </p>
+      <div className="mt-5 flex items-center gap-3">
+        <span className="label-caps">Go-live confidence</span>
+        <div className="h-3 w-56 overflow-hidden rounded-full bg-muted">
+          <div className="h-full w-[70%] bg-warn" />
+        </div>
+        <span className="font-display text-xl">70%</span>
+      </div>
+      <p className="mt-5 font-display text-3xl uppercase text-primary">
+        Something in Casa Fuego is lying.
+      </p>
+      <button
+        onClick={onDone}
+        className="mt-6 rounded-md bg-primary px-6 py-4 font-display text-2xl uppercase tracking-wider text-primary-foreground hover:brightness-110"
+      >
+        Start investigating
+      </button>
+    </main>
+  );
+}
+
+function EscalationAlert({ onClose }: { onClose: () => void }) {
+  return (
+    <Modal>
+      <div className="label-caps text-destructive">🚨 New order received</div>
+      <h2 className="font-display text-3xl uppercase leading-none">Table 8</h2>
+      <ul className="mt-4 space-y-2 font-display text-xl uppercase">
+        {ESCALATION_ORDER.map((o) => (
+          <li key={o.item} className="flex items-center gap-3">
+            <span className="text-2xl">{o.icon}</span>
+            <span className="w-52">{o.item}</span>
+            <span className={o.ok ? "text-go" : "text-nogo"}>{o.ok ? "✅" : "❌"}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-4 font-display text-2xl uppercase text-nogo">
+        Go-live confidence drops to 45%
+      </p>
+      <button
+        onClick={onClose}
+        className="mt-5 rounded-md bg-primary px-5 py-3 font-display uppercase text-primary-foreground"
+      >
+        Back to Casa Fuego
+      </button>
+    </Modal>
+  );
+}
+
+function WrongScreen({ attemptsLeft, onBack }: { attemptsLeft: number; onBack: () => void }) {
+  const hint = SOCRATIC[(3 - attemptsLeft - 1 + SOCRATIC.length) % SOCRATIC.length];
+  return (
+    <Modal>
+      <h2 className="font-display text-4xl uppercase leading-none text-nogo">❌ Wrong accusation</h2>
+      <p className="mt-3 font-display text-xl uppercase">
+        Your theory does not explain all available evidence.
+      </p>
+      <p className="mt-3 text-sm text-muted-foreground">{hint}</p>
+      <p className="mt-4 font-display text-3xl">
+        {"❤️".repeat(attemptsLeft)}
+        {"🖤".repeat(3 - attemptsLeft)}
+      </p>
+      {attemptsLeft === 1 && (
+        <p className="mt-2 font-display text-2xl uppercase text-destructive">⚠️ Final attempt</p>
+      )}
+      <button
+        onClick={onBack}
+        className="mt-5 rounded-md bg-primary px-5 py-3 font-display uppercase text-primary-foreground"
+      >
+        Return to Casa Fuego
+      </button>
+    </Modal>
+  );
+}
+
+function FiredScreen({ solvedCount, total }: { solvedCount: number; total: number }) {
+  return (
+    <main className="flex min-h-screen flex-col items-center justify-center px-6 text-center">
+      <div className="text-7xl">💀</div>
+      <h1 className="mt-4 font-display text-6xl uppercase leading-none text-nogo">Access revoked</h1>
+      <p className="mt-3 font-display text-4xl uppercase">You're fired</p>
+      <p className="mt-2 font-display text-2xl uppercase text-muted-foreground">Pack your laptop</p>
+      <p className="mt-4 text-lg text-foreground/80">“Sander would like a quick chat.”</p>
+      <p className="mt-8 label-caps">
+        🟢 {solvedCount}/{total} implementers have saved Casa Fuego
+      </p>
+    </main>
+  );
+}
+
+function SuccessScreen({
+  score,
+  seconds,
+  attempts,
+  evidence,
+  decision,
+  solvedCount,
+  total,
 }: {
-  options: string[];
-  selected: string | null;
-  onSelect: (v: string) => void;
+  score: number;
+  seconds: number;
+  attempts: number;
+  evidence: number;
+  decision: string;
+  solvedCount: number;
+  total: number;
 }) {
   return (
-    <div className="grid gap-2 sm:grid-cols-2">
-      {options.map((o) => (
-        <button
-          key={o}
-          onClick={() => onSelect(o)}
-          className={`rounded-md border px-4 py-3 font-display text-lg uppercase tracking-wider transition ${
-            selected === o
-              ? "ember-glow border-primary bg-primary/15 text-primary"
-              : "border-border hover:border-primary/60"
-          }`}
-        >
-          {o}
-        </button>
-      ))}
+    <main className="noir-grain mx-auto min-h-screen max-w-3xl px-5 py-10">
+      <div className="label-caps">🔥 Casa Fuego — Go-live recovery report</div>
+      <h1 className="mt-1 font-display text-5xl uppercase leading-none text-go">Go-live saved</h1>
+      <div className="panel mt-5 space-y-2 p-5 font-display text-lg uppercase">
+        <Row k="Root cause" v="⚙️ Incorrect accounting group mapping" />
+        <Row k="Failed items" v="🥩 Ribeye · 🐙 Grilled octopus · 🐖 Iberian pork" />
+        <Row k="Killer" v="👤 Partner assumption" />
+        <Row k="Weapon" v="📋 Checklist without evidence" />
+        <Row k="Recovery" v="🔧 Correct mapping → 🧪 E2E validation → 📎 Evidence attached" />
+        <Row
+          k="Decision"
+          v={decision === "conditional" ? "🟠 Conditional go → 🟢 GO" : decision.toUpperCase()}
+        />
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Stat k="Time" v={fmt(seconds)} />
+        <Stat k="Attempts" v={`${attempts}/3`} />
+        <Stat k="Evidence" v={String(evidence)} />
+        <Stat k="Score" v={String(score)} />
+      </div>
+      <p className="mt-6 label-caps">
+        🟢 {solvedCount}/{total} implementers have saved Casa Fuego
+      </p>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Stay on this screen — the Game Master will reveal the full debrief and leaderboard.
+      </p>
+    </main>
+  );
+}
+
+function EndScreen({ players }: { players: { id: string; name: string; score: number; status: string; finish_seconds: number | null }[] }) {
+  const ranked = [...players].sort(
+    (a, b) => b.score - a.score || (a.finish_seconds ?? 9999) - (b.finish_seconds ?? 9999),
+  );
+  return (
+    <main className="noir-grain mx-auto min-h-screen max-w-3xl px-5 py-10">
+      <Debrief />
+      <div className="panel mt-6 p-5">
+        <div className="label-caps">Final leaderboard</div>
+        <ol className="mt-3 space-y-2">
+          {ranked.map((p, i) => (
+            <li key={p.id} className="flex items-center justify-between gap-3 font-display text-lg uppercase">
+              <span>
+                {i + 1}. {p.name} {p.status === "fired" ? "💀" : p.status === "saved" ? "🏆" : "⏳"}
+              </span>
+              <span className="text-primary">{p.score}</span>
+            </li>
+          ))}
+        </ol>
+      </div>
+    </main>
+  );
+}
+
+/* ── bits ──────────────────────────────────────────────────── */
+
+const fmt = (s: number | null) =>
+  s === null ? "--:--" : `${Math.floor(Math.max(0, s) / 60)}:${String(Math.max(0, s) % 60).padStart(2, "0")}`;
+
+function Row({ k, v }: { k: string; v: string }) {
+  return (
+    <div className="flex flex-wrap gap-x-3">
+      <span className="w-40 text-muted-foreground">{k}</span>
+      <span>{v}</span>
+    </div>
+  );
+}
+
+function Stat({ k, v }: { k: string; v: string }) {
+  return (
+    <div className="rounded-md border border-border p-3">
+      <div className="label-caps text-[10px]">{k}</div>
+      <div className="font-display text-2xl">{v}</div>
+    </div>
+  );
+}
+
+function Modal({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/85 p-4 backdrop-blur">
+      <div className="panel noir-grain w-full max-w-lg p-6 text-center">{children}</div>
     </div>
   );
 }
@@ -365,7 +594,6 @@ function LateJoin({
   onJoined: (id: string) => void;
 }) {
   const [name, setName] = useState("");
-  const [role, setRole] = useState(ROLES[0]!.id);
   const [busy, setBusy] = useState(false);
 
   async function submit(e: React.FormEvent) {
@@ -373,7 +601,7 @@ function LateJoin({
     setBusy(true);
     const { data } = await supabase
       .from("players")
-      .insert({ room_id: roomId, name: name.trim() || "Detective", role })
+      .insert({ room_id: roomId, name: name.trim() || "Detective", status: "lobby" })
       .select()
       .single();
     if (data) onJoined(data.id);
@@ -393,27 +621,11 @@ function LateJoin({
             required
             className="w-full rounded-md border border-input bg-background/60 px-4 py-3 outline-none focus:border-primary"
           />
-          <div className="grid gap-2">
-            {ROLES.map((r) => (
-              <button
-                key={r.id}
-                type="button"
-                onClick={() => setRole(r.id)}
-                className={`rounded-md border px-3 py-2 text-left text-sm transition ${
-                  role === r.id
-                    ? "border-primary bg-primary/10"
-                    : "border-border text-muted-foreground hover:border-primary/50"
-                }`}
-              >
-                <span className="font-display uppercase tracking-wide">{r.name}</span>
-              </button>
-            ))}
-          </div>
           <button
             disabled={busy}
             className="w-full rounded-md bg-primary px-5 py-3 font-display text-lg uppercase tracking-wider text-primary-foreground hover:brightness-110 disabled:opacity-60"
           >
-            Enter the scene
+            Enter Casa Fuego
           </button>
         </form>
       </div>
@@ -424,7 +636,10 @@ function LateJoin({
 function Shell({ children }: { children: React.ReactNode }) {
   return (
     <main className="flex min-h-screen items-center justify-center px-6 text-center">
-      <p className="font-display text-2xl uppercase text-muted-foreground">{children}</p>
+      <div className="font-display text-2xl uppercase text-muted-foreground">{children}</div>
     </main>
   );
 }
+
+// keep import used for typing clarity
+export type { Accusation };
