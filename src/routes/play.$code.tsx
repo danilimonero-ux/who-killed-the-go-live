@@ -66,7 +66,7 @@ function PlayerScreen() {
 
   useEffect(() => setPlayerId(readPlayerId(code)), [code]);
 
-  const me = players.find((p) => p.id === playerId) ?? null;
+  const me = players.find((p) => p.id === playerId && !p.is_host) ?? null;
   const running = room?.phase === "running";
 
   const join = async (investigatorId: string) => {
