@@ -2,8 +2,9 @@ import { investigatorById } from "@/lib/investigators";
 import { createFileRoute } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { useCountdown, useRoom, type Player } from "@/lib/room";
-import { GAME_SECONDS } from "@/lib/case";
+import { GAME_SECONDS, ZONES } from "@/lib/case";
 import { Debrief } from "@/components/casa/Debrief";
+import { CasaMap, type MapAvatar } from "@/components/casa/CasaMap";
 
 export const Route = createFileRoute("/host/$code")({
   head: () => ({
@@ -58,107 +59,131 @@ function HostScreen() {
       </main>
     );
 
+  const avatars: MapAvatar[] = detectives
+    .map((p) => {
+      const inv = investigatorById(p.role);
+      return inv ? { id: p.id, zone: p.zone ?? "restaurant", isMe: false, inv } : null;
+    })
+    .filter((a): a is MapAvatar => a !== null);
+
   return (
-    <main className="noir-grain mx-auto max-w-5xl px-5 py-8">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <div className="label-caps">Game Master · Casa Fuego Madrid</div>
-          <h1 className="font-display text-6xl uppercase leading-none tracking-[0.15em] text-primary">
-            {room.code}
-          </h1>
-        </div>
-        <div className="text-right">
-          <div className="label-caps">Shared timer</div>
-          <div className="font-display text-6xl tabular-nums leading-none">
+    <main className="fixed inset-0 flex flex-col overflow-hidden bg-[#0b0e14]">
+      <header className="z-30 flex shrink-0 items-center gap-4 border-b border-white/10 bg-[#11151d] px-5 py-2">
+        <div className="label-caps text-[10px]">Game Master · Casa Fuego Madrid</div>
+        <div className="mx-auto flex items-center gap-3">
+          <span className="label-caps text-[10px]">⏱ Shared timer</span>
+          <span className="font-display text-4xl tabular-nums leading-none text-primary">
             {left === null
               ? "10:00"
               : `${Math.floor(Math.max(0, left) / 60)}:${String(Math.max(0, left) % 60).padStart(2, "0")}`}
-          </div>
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="label-caps text-[11px]">👥 {detectives.length}</span>
+          <span className="label-caps text-[11px] text-go">
+            🟢 {saved.length}/{detectives.length} saved
+          </span>
+          <span className="label-caps text-[11px] text-nogo">💀 {fired.length}</span>
         </div>
       </header>
 
-      {room.phase === "lobby" ? (
-        <>
-          <section className="panel mt-6 p-5">
-            <div className="label-caps">Read this out loud · 30 seconds</div>
-            <p className="mt-2 font-display text-2xl uppercase leading-tight">
-              “Explore Casa Fuego, click anything suspicious and collect evidence. When you think you
-              know what failed, why, who killed the go-live and with what, press Save the Go-Live.
-              You have three attempts. Three mistakes and you're fired. Highest score wins.”
-            </p>
-          </section>
-          <button
-            onClick={() => void start()}
-            disabled={detectives.length === 0}
-            className="mt-5 w-full rounded-md bg-primary px-6 py-5 font-display text-3xl uppercase tracking-wider text-primary-foreground hover:brightness-110 disabled:opacity-40"
-          >
-            ▶ Start the investigation
-          </button>
-        </>
-      ) : (
-        <section className="panel mt-6 flex flex-wrap items-center gap-6 p-5">
-          <Big k="Saved" v={`${saved.length}/${detectives.length}`} />
-          <Big k="Fired" v={String(fired.length)} />
-          <Big k="Still investigating" v={String(detectives.filter((p) => p.status === "investigating").length)} />
-          <button
-            onClick={() => void end()}
-            className="ml-auto rounded-md bg-destructive px-6 py-3 font-display text-xl uppercase tracking-wider text-destructive-foreground hover:brightness-110"
-          >
-            End game & reveal
-          </button>
-        </section>
-      )}
+      <div className="flex min-h-0 flex-1">
+        <aside className="flex w-[24%] min-w-[280px] shrink-0 flex-col gap-3 overflow-y-auto border-r border-white/10 bg-[#11151d] p-4">
+          <div>
+            <div className="label-caps text-[10px]">Room code</div>
+            <div className="font-display text-6xl uppercase leading-none tracking-[0.14em] text-primary">
+              {room.code}
+            </div>
+          </div>
 
-      <section className="panel mt-5 p-5">
-        <div className="label-caps">Implementers ({detectives.length})</div>
-        <ul className="mt-3 grid gap-2 md:grid-cols-2">
-          {detectives.map((p) => {
-            const inv = investigatorById(p.role);
-            return (
-              <li
-                key={p.id}
-                className="flex items-center justify-between gap-3 rounded-md border border-border px-4 py-3"
+          {room.phase === "lobby" ? (
+            <>
+              <div className="panel p-3">
+                <div className="label-caps text-[10px]">Read out loud · 30 seconds</div>
+                <p className="mt-2 font-display text-base uppercase leading-tight">
+                  “Explore Casa Fuego, click anything suspicious and collect evidence. When you know
+                  what failed, why, who killed the go-live and with what, press Save the Go-Live.
+                  Three attempts. Three mistakes and you're fired. Highest score wins.”
+                </p>
+              </div>
+              <button
+                onClick={() => void start()}
+                disabled={detectives.length === 0}
+                className="rounded-md bg-primary px-5 py-4 font-display text-2xl uppercase tracking-wider text-primary-foreground hover:brightness-110 disabled:opacity-40"
               >
-                <span className="flex min-w-0 items-center gap-3">
-                  {inv && (
-                    <span
-                      className="h-10 w-10 shrink-0 overflow-hidden rounded-full border-2 bg-black/40"
-                      style={{ borderColor: inv.accent }}
-                    >
-                      <img
-                        src={inv.portrait}
-                        alt={inv.name}
-                        loading="lazy"
-                        width={512}
-                        height={512}
-                        className="h-full w-full object-cover object-top"
-                      />
-                    </span>
-                  )}
-                  <span className="min-w-0">
-                    <span className="block truncate font-display text-lg uppercase leading-tight">
-                      {p.name}
-                    </span>
+                ▶ Start the investigation
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => void end()}
+              className="rounded-md bg-destructive px-5 py-3 font-display text-lg uppercase tracking-wider text-destructive-foreground hover:brightness-110"
+            >
+              End game & reveal
+            </button>
+          )}
+
+          <div className="panel flex-1 p-3">
+            <div className="label-caps text-[10px]">Investigators ({detectives.length}/6)</div>
+            <ul className="mt-2 space-y-2">
+              {detectives.map((p) => {
+                const inv = investigatorById(p.role);
+                return (
+                  <li key={p.id} className="flex items-center gap-2.5 rounded-md border border-border px-2.5 py-2">
                     {inv && (
-                      <span className="label-caps text-[10px]" style={{ color: inv.accent }}>
-                        {inv.icon} {inv.role}
+                      <span
+                        className="h-9 w-9 shrink-0 overflow-hidden rounded-full border-2 bg-black/40"
+                        style={{ borderColor: inv.accent }}
+                      >
+                        <img
+                          src={inv.portrait}
+                          alt={inv.name}
+                          loading="lazy"
+                          width={768}
+                          height={1024}
+                          className="h-full w-full object-cover object-top"
+                        />
                       </span>
                     )}
-                  </span>
-                </span>
-                <span className="flex items-center gap-3 text-sm">
-                  <span>{"❤️".repeat(Math.max(0, 3 - p.attempts_used))}</span>
-                  <StatusPill status={p.status} />
-                </span>
-              </li>
-            );
-          })}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-display text-xs uppercase leading-tight">
+                        {p.name}
+                      </span>
+                      <span className="label-caps text-[9px]">
+                        📍 {ZONES.find((z) => z.id === (p.zone ?? "restaurant"))?.name ?? "—"}
+                      </span>
+                    </span>
+                    <span className="flex shrink-0 flex-col items-end gap-1">
+                      <StatusPill status={p.status} />
+                      <span className="text-[10px]">{"❤️".repeat(Math.max(0, 3 - p.attempts_used)) || "—"}</span>
+                    </span>
+                  </li>
+                );
+              })}
+              {detectives.length === 0 && (
+                <li className="text-sm text-muted-foreground">
+                  Waiting for investigators to join with the code.
+                </li>
+              )}
+            </ul>
+          </div>
+        </aside>
 
-          {detectives.length === 0 && (
-            <li className="text-muted-foreground">Waiting for players to join with the code.</li>
-          )}
-        </ul>
-      </section>
+        <div className="relative min-h-0 min-w-0 flex-1 p-3">
+          <CasaMap
+            found={[]}
+            doneActions={[]}
+            selected={null}
+            avatars={avatars}
+            myZone={null}
+            onSelect={() => {}}
+            readOnly
+          />
+          <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border border-white/10 bg-black/75 px-4 py-1.5 text-xs text-muted-foreground backdrop-blur">
+            Live crime scene · investigator positions update in real time · findings stay private
+          </div>
+        </div>
+      </div>
     </main>
   );
 }
