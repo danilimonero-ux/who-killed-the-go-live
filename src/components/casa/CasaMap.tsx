@@ -92,6 +92,7 @@ export function CasaMap({
   onSelect,
   onAvatarClick,
   readOnly = false,
+  avatarScale = 1,
 }: {
   found: string[];
   doneActions: string[];
@@ -102,7 +103,10 @@ export function CasaMap({
   onSelect: (id: string | null) => void;
   onAvatarClick?: (playerId: string) => void;
   readOnly?: boolean;
+  /** enlarge standees (host console uses > 1 so avatars read at a glance) */
+  avatarScale?: number;
 }) {
+
   const wrap = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.5);
 
@@ -277,18 +281,20 @@ export function CasaMap({
           const z = ZONES.find((zz) => zz.id === a.zone) ?? ZONES[0]!;
           const peers = avatars.filter((p) => p.zone === a.zone);
           const slot = peers.findIndex((p) => p.id === a.id);
-          const spread = Math.min(130, z.w / 3.2);
+          const spread = Math.max(70, Math.min(150, z.w / (peers.length + 0.6)));
           const wx = z.x + z.w / 2 + (slot - (peers.length - 1) / 2) * spread;
-          const wy = z.y + z.h - 80 + (slot % 2 === 0 ? 0 : 46);
+          const wy = z.y + z.h - 90 + (slot % 2 === 0 ? 0 : 52);
           return (
             <Standee
               key={a.id}
               a={a}
               pos={at(wx, wy)}
+              scale={avatarScale}
               onClick={onAvatarClick ? () => onAvatarClick(a.id) : undefined}
             />
           );
         })}
+
       </div>
     </div>
   );
@@ -323,10 +329,12 @@ function Standee({
   a,
   pos,
   onClick,
+  scale = 1,
 }: {
   a: MapAvatar;
   pos: { left: number; top: number };
   onClick?: (() => void) | undefined;
+  scale?: number;
 }) {
   const prevZone = useRef(a.zone);
   const [walking, setWalking] = useState(false);
@@ -335,25 +343,26 @@ function Standee({
     if (prevZone.current === a.zone) return;
     prevZone.current = a.zone;
     setWalking(true);
-    const t = setTimeout(() => setWalking(false), 1000);
+    const t = setTimeout(() => setWalking(false), 1100);
     return () => clearTimeout(t);
   }, [a.zone]);
 
   const accent = a.isMe ? "var(--primary)" : a.inv.accent;
+  const h = Math.round((a.isMe ? 140 : 124) * scale);
 
   return (
     <div
-      className="absolute z-40 transition-[left,top] duration-[900ms] ease-in-out"
+      className="absolute z-40 transition-[left,top] duration-[1000ms] ease-in-out"
       style={{ ...pos, pointerEvents: onClick ? "auto" : "none" }}
     >
       <div
         className="absolute -translate-x-1/2 -translate-y-1/2 rounded-[50%] bg-black/60 blur-[4px] transition-all duration-300"
-        style={{ width: walking ? 62 : 76, height: walking ? 24 : 30 }}
+        style={{ width: (walking ? 62 : 76) * scale, height: (walking ? 24 : 30) * scale }}
       />
       {walking && (
         <div
           className="absolute -translate-x-1/2 -translate-y-1/2 animate-ping rounded-[50%]"
-          style={{ width: 90, height: 34, border: `2px solid ${accent}`, opacity: 0.5 }}
+          style={{ width: 90 * scale, height: 34 * scale, border: `2px solid ${accent}`, opacity: 0.5 }}
         />
       )}
       <div
@@ -368,8 +377,13 @@ function Standee({
         } ${walking ? "casa-walk" : ""}`}
       >
         <div
-          className="mb-0.5 whitespace-nowrap rounded-full border px-2 py-0.5 font-display text-[11px] uppercase tracking-wider"
-          style={{ color: accent, borderColor: accent, background: "rgba(6,8,12,0.88)" }}
+          className="mb-0.5 whitespace-nowrap rounded-full border px-2 py-0.5 font-display uppercase tracking-wider"
+          style={{
+            color: accent,
+            borderColor: accent,
+            background: "rgba(6,8,12,0.88)",
+            fontSize: Math.round(11 * scale),
+          }}
         >
           {a.inv.short}
         </div>
@@ -379,8 +393,9 @@ function Standee({
           loading="lazy"
           width={768}
           height={1024}
-          className={a.isMe ? "h-[140px] w-auto" : "h-[118px] w-auto"}
+          className="w-auto"
           style={{
+            height: h,
             filter: `drop-shadow(0 12px 12px rgba(0,0,0,0.8)) drop-shadow(0 0 12px ${
               a.isMe || walking ? accent : "transparent"
             })`,
@@ -389,4 +404,5 @@ function Standee({
       </div>
     </div>
   );
+
 }

@@ -109,7 +109,16 @@ export function useRoom(code: string) {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "players", filter: `room_id=eq.${roomId}` },
-        () => {
+        (payload) => {
+          // apply the row immediately so avatars move the instant a zone changes
+          const row = payload.new as Partial<Player> | null;
+          if (row?.id) {
+            setPlayers((s) =>
+              s.some((p) => p.id === row.id)
+                ? s.map((p) => (p.id === row.id ? ({ ...p, ...row } as Player) : p))
+                : s,
+            );
+          }
           void supabase
             .from("players")
             .select("*")
@@ -118,6 +127,7 @@ export function useRoom(code: string) {
             .then(({ data }) => setPlayers((data ?? []) as Player[]));
         },
       )
+
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "votes", filter: `room_id=eq.${roomId}` },
