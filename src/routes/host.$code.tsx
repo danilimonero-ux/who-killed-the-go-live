@@ -207,7 +207,9 @@ function HostScreen() {
             myZone={null}
             onSelect={() => {}}
             onAvatarClick={(id) => setInspectId(id)}
+            avatarScale={1.35}
             readOnly
+
           />
           <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border border-white/10 bg-black/75 px-4 py-1.5 text-xs text-muted-foreground backdrop-blur">
             Live crime scene · click an investigator to inspect · findings stay private from players
@@ -325,11 +327,12 @@ const labelOf = (list: Choice[], id: string | null) =>
 function AccusationAlert({ row, onClose }: { row: AccusationRow; onClose: () => void }) {
   const inv = investigatorById(row.role);
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-6 backdrop-blur-sm">
+    <div className="pointer-events-none fixed inset-x-0 top-14 z-[80] flex justify-center px-6">
       <div
-        className="w-full max-w-2xl rounded-lg border-2 bg-[#11151d] p-6 shadow-2xl"
+        className="pointer-events-auto w-full max-w-2xl rounded-lg border-2 bg-[#11151d]/97 p-5 shadow-2xl backdrop-blur"
         style={{ borderColor: row.correct ? "var(--go, #4ade80)" : "var(--nogo, #ef4444)" }}
       >
+
         <div className="flex items-center gap-3">
           {inv && (
             <img
